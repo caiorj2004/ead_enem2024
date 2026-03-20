@@ -30,7 +30,32 @@ from analysis import (
 )
 from database import load_data
 
-warnings.filterwarnings("ignore")
+# Suppress only Plotly/pandas FutureWarnings that are known to be harmless
+warnings.filterwarnings("ignore", category=FutureWarning, module="plotly")
+
+
+# ---------------------------------------------------------------------------
+# Leitura das credenciais do banco de dados (st.secrets)
+# ---------------------------------------------------------------------------
+
+def _get_db_config() -> dict | None:
+    """
+    Lê as credenciais do banco PostgreSQL a partir de st.secrets["database"].
+
+    Retorna None quando as credenciais não estiverem configuradas
+    (modo template / demonstração).
+
+    As chaves esperadas em secrets.toml são:
+        host, port, dbname, user, password, table (opcional)
+    """
+    try:
+        section = st.secrets["database"]
+        # Retorna None se ainda forem os valores de placeholder
+        if str(section.get("host", "")).upper().startswith("SEU_"):
+            return None
+        return dict(section)
+    except (KeyError, FileNotFoundError):
+        return None
 
 # ---------------------------------------------------------------------------
 # Configuração da página
@@ -48,13 +73,14 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 @st.cache_data(show_spinner="Carregando dados do ENEM 2024…")
-def get_data() -> pd.DataFrame:
-    df = load_data()
+def get_data(db_config: dict | None) -> tuple[pd.DataFrame, bool]:
+    df, is_demo = load_data(db_config)
     df = apply_labels(df)
-    return df
+    return df, is_demo
 
 
-df_full = get_data()
+_db_config = _get_db_config()
+df_full, _is_demo = get_data(_db_config)
 
 # ---------------------------------------------------------------------------
 # Sidebar – navegação + filtros globais
@@ -94,6 +120,20 @@ df = df_full[
 ].copy()
 
 st.sidebar.markdown(f"**Registros filtrados:** {len(df):,}")
+
+# ---------------------------------------------------------------------------
+# Banner de modo template (visível em todas as páginas)
+# ---------------------------------------------------------------------------
+
+if _is_demo:
+    st.info(
+        "⚙️ **Modo template ativo** – os dados exibidos são **sintéticos** e servem "
+        "apenas para demonstração da estrutura do dashboard. "
+        "Para conectar ao banco de dados real, configure as credenciais em "
+        "*Streamlit Cloud → Settings → Secrets* seguindo o modelo em "
+        "`.streamlit/secrets.toml`.",
+        icon="🔧",
+    )
 
 # ---------------------------------------------------------------------------
 # Paleta de cores padrão

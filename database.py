@@ -1,36 +1,63 @@
 """
 database.py – Conexão ao banco de dados e coleta dos dados do ENEM 2024.
 
-Estratégia:
-  1. Abre (ou cria) um banco SQLite local (`enem2024.db`).
-  2. Se a tabela `enem2024` ainda não existir, verifica se há um CSV com os
-     microdados reais em `data/MICRODADOS_ENEM_2024.csv`.  Caso contrário,
-     gera um conjunto de dados sintéticos com a mesma estrutura para fins
-     demonstrativos.
-  3. Expõe a função pública `load_data()` que os demais módulos utilizam.
+Modos de operação
+-----------------
+1. **Banco real (PostgreSQL)**
+   Quando `load_data()` recebe um `db_config` com credenciais válidas,
+   conecta-se ao banco PostgreSQL e retorna os dados reais.
+   As credenciais nunca devem ser commitadas no repositório; configure-as
+   via Streamlit Cloud em *Settings → Secrets* seguindo o template em
+   `.streamlit/secrets.toml`.
+
+2. **Modo template / demonstração**
+   Sem credenciais (ou se a conexão falhar), os dados são gerados
+   sinteticamente com a mesma estrutura dos microdados do ENEM 2024,
+   permitindo que o dashboard funcione antes das credenciais serem
+   fornecidas.
 """
+
+from __future__ import annotations
 
 import os
 import sqlite3
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Configurações
+# Configurações – modo template
 # ---------------------------------------------------------------------------
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "enem2024.db")
-CSV_PATH = os.path.join(os.path.dirname(__file__), "data", "MICRODADOS_ENEM_2024.csv")
+_SQLITE_PATH = os.path.join(os.path.dirname(__file__), "enem2024.db")
 
-# Número de registros sintéticos gerados quando não há CSV disponível
+# Número de registros sintéticos gerados no modo template
 SYNTHETIC_ROWS = 15_000
 
 # Semente para reprodutibilidade
 RNG_SEED = 42
 
+# Colunas que a aplicação espera encontrar no banco real
+EXPECTED_COLUMNS = [
+    "NU_INSCRICAO",
+    "NU_ANO",
+    "SG_UF_RESIDENCIA",
+    "NU_IDADE",
+    "TP_SEXO",
+    "TP_COR_RACA",
+    "TP_ESCOLA",
+    "TP_ST_CONCLUSAO",
+    "IN_TREINEIRO",
+    "NU_NOTA_CN",
+    "NU_NOTA_CH",
+    "NU_NOTA_LC",
+    "NU_NOTA_MT",
+    "NU_NOTA_REDACAO",
+]
+
 # ---------------------------------------------------------------------------
-# Dados auxiliares
+# Dados auxiliares para geração sintética
 # ---------------------------------------------------------------------------
 
 UFS = [
@@ -128,66 +155,114 @@ def _create_synthetic_data(n: int = SYNTHETIC_ROWS) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Conexão ao banco
+# PostgreSQL – conexão real
 # ---------------------------------------------------------------------------
 
-def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
-    """Retorna uma conexão SQLite para o banco informado."""
-    return sqlite3.connect(db_path)
+def _pg_load(db_config: dict[str, Any]) -> pd.DataFrame:
+    """
+    Conecta ao banco PostgreSQL usando as credenciais fornecidas e retorna
+    os dados da tabela configurada.
 
+    Parameters
+    ----------
+    db_config : dict com as chaves:
+        host, port, dbname, user, password, table (opcional, padrão "enem2024")
 
-def _ensure_table(conn: sqlite3.Connection) -> None:
-    """Popula a tabela `enem2024` caso ela ainda não exista."""
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='enem2024'"
+    Returns
+    -------
+    pd.DataFrame com as colunas de EXPECTED_COLUMNS presentes na tabela.
+
+    Raises
+    ------
+    ImportError  – se psycopg2 não estiver instalado.
+    Exception    – qualquer erro de conexão ou query é propagado para que
+                   `load_data()` possa fazer o fallback adequado.
+    """
+    try:
+        import psycopg2  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "psycopg2-binary não está instalado. "
+            "Adicione-o a requirements.txt para usar o banco PostgreSQL."
+        ) from exc
+
+    table = db_config.get("table", "enem2024")
+    # Validate table name to prevent SQL injection
+    if not table.replace("_", "").isalnum():
+        raise ValueError(f"Invalid table name: {table!r}")
+    cols  = ", ".join(EXPECTED_COLUMNS)
+    query = f"SELECT {cols} FROM {table};"
+
+    conn = psycopg2.connect(
+        host=db_config["host"],
+        port=int(db_config.get("port", 5432)),
+        dbname=db_config["dbname"],
+        user=db_config["user"],
+        password=db_config["password"],
     )
-    if cursor.fetchone() is not None:
-        return  # tabela já existe
+    try:
+        df = pd.read_sql(query, conn)
+    finally:
+        conn.close()
+    return df
 
-    if os.path.exists(CSV_PATH):
-        df = pd.read_csv(CSV_PATH, sep=";", encoding="latin-1", low_memory=False)
-        # Mantém apenas as colunas que o restante da aplicação precisa
-        cols_needed = [
-            "NU_INSCRICAO", "NU_ANO", "SG_UF_RESIDENCIA", "NU_IDADE",
-            "TP_SEXO", "TP_COR_RACA", "TP_ESCOLA", "TP_ST_CONCLUSAO",
-            "IN_TREINEIRO", "NU_NOTA_CN", "NU_NOTA_CH",
-            "NU_NOTA_LC", "NU_NOTA_MT", "NU_NOTA_REDACAO",
-        ]
-        existing = [c for c in cols_needed if c in df.columns]
-        df = df[existing]
-    else:
-        df = _create_synthetic_data()
 
-    df.to_sql("enem2024", conn, if_exists="replace", index=False)
-    conn.commit()
+# ---------------------------------------------------------------------------
+# SQLite – modo template / demonstração
+# ---------------------------------------------------------------------------
+
+def _sqlite_load(db_path: str = _SQLITE_PATH) -> pd.DataFrame:
+    """Carrega (ou cria) os dados sintéticos em um banco SQLite local."""
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='enem2024'"
+        )
+        if cursor.fetchone() is None:
+            _create_synthetic_data().to_sql("enem2024", conn, if_exists="replace", index=False)
+            conn.commit()
+        df = pd.read_sql("SELECT * FROM enem2024", conn)
+    finally:
+        conn.close()
+    return df
 
 
 # ---------------------------------------------------------------------------
 # API pública
 # ---------------------------------------------------------------------------
 
-def load_data(db_path: str = DB_PATH) -> pd.DataFrame:
+def load_data(db_config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, bool]:
     """
-    Carrega os dados do ENEM 2024 do banco SQLite.
+    Carrega os dados do ENEM 2024.
 
-    Se o banco (ou a tabela) ainda não existir, os dados são criados
-    automaticamente antes de serem retornados.
+    Tenta, em ordem:
+      1. Conectar ao PostgreSQL usando `db_config` (credenciais reais).
+      2. Usar banco SQLite local com dados sintéticos (modo template).
 
     Parameters
     ----------
-    db_path : str
-        Caminho para o arquivo SQLite.
+    db_config : dict | None
+        Dicionário com as credenciais do banco real (lido de st.secrets em
+        app.py). Se ``None`` ou se a conexão falhar, usa o modo template.
+        Chaves esperadas: ``host``, ``port``, ``dbname``, ``user``,
+        ``password``, ``table`` (opcional).
 
     Returns
     -------
-    pd.DataFrame
-        DataFrame com os microdados do ENEM 2024.
+    df       : pd.DataFrame com os microdados.
+    is_demo  : bool – True quando os dados são sintéticos (modo template).
     """
-    conn = get_connection(db_path)
-    try:
-        _ensure_table(conn)
-        df = pd.read_sql("SELECT * FROM enem2024", conn)
-    finally:
-        conn.close()
-    return df
+    if db_config:
+        try:
+            import psycopg2  # type: ignore[import-untyped]
+            df = _pg_load(db_config)
+            # Mantém apenas as colunas conhecidas que existirem
+            existing = [c for c in EXPECTED_COLUMNS if c in df.columns]
+            return df[existing], False
+        except (ImportError, psycopg2.Error, ValueError):
+            # Falha silenciosa: continua para o modo template
+            pass
+
+    return _sqlite_load(), True
+

@@ -169,7 +169,6 @@ def descriptive_stats(df: pd.DataFrame, columns: list[str] | None = None) -> pd.
         }
     )
 
-    stats.loc["Mediana"]  = subset.median().round(2)
     stats.loc["Assimetria (Skew)"] = subset.skew().round(4)
     stats.loc["Curtose"]  = subset.kurtosis().round(4)
     stats.loc["CV (%)"]   = (subset.std() / subset.mean() * 100).round(2)
