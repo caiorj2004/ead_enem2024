@@ -557,8 +557,6 @@ elif page == "🔗 Análise de Correlação":
         format_func=lambda m: m.capitalize(),
     )
 
-    col_left, col_right = st.columns([3, 1])
-
     heatmap_cols = [c for c in HEATMAP_COLS if c in df.columns]
     corr_df      = correlation_matrix(df, columns=heatmap_cols, method=method)
 
@@ -581,8 +579,7 @@ elif page == "🔗 Análise de Correlação":
         title=f"Correlação de {method.capitalize()} entre notas e indicadores municipais",
         xaxis=dict(side="bottom"),
     )
-    with col_left:
-        st.plotly_chart(fig_heat, use_container_width=True)
+    st.plotly_chart(fig_heat, use_container_width=True)
 
     with st.expander("📋 Ver tabela da matriz de correlação"):
         st.dataframe(corr_df, use_container_width=True)
@@ -660,12 +657,27 @@ elif page == "🔗 Análise de Correlação":
         x_range   = np.linspace(x_vals.min(), x_vals.max(), 200)
         fig_sc = go.Figure()
         fig_sc.add_scatter(
+            x=scatter_df[sel_x_col],
+            y=scatter_df[sel_y_col],
+            mode="markers",
+            marker=dict(color="#636EFA", size=4, opacity=0.45),
+            customdata=scatter_df[["municipio", "total_inscritos"]].values,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                + f"{sel_x_lbl}: " + "%{x:.3f}<br>"
+                + f"{sel_y_lbl}: " + "%{y:.1f}<br>"
+                "Inscritos: %{customdata[1]:,}<extra></extra>"
+            ),
+            name="Municípios",
+            showlegend=False,
+        )
+        fig_sc.add_scatter(
             x=x_range, y=np.polyval(poly_coef, x_range),
             mode="lines", line=dict(color="black", width=2, dash="dash"),
             name="Tendência (OLS)", showlegend=False,
         )
         fig_sc.update_layout(
-            title=f"{sel_y_lbl} × {sel_x_lbl} (tendência OLS)",
+            title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
             xaxis_title=sel_x_lbl,
             yaxis_title=sel_y_lbl,
             height=520,
