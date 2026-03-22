@@ -253,7 +253,10 @@ if page == "🏠 Visão Geral":
 
     # --- Prévia dos dados ---
     with st.expander("📋 Prévia dos dados municipais (primeiras 200 linhas)"):
-        st.dataframe(df.head(200), use_container_width=True)
+        preview_df = df.head(200)
+        if "cod_7" in preview_df.columns:
+            preview_df = preview_df.rename(columns={"cod_7": "codigo_municipio"})
+        st.dataframe(preview_df, use_container_width=True)
 
 
 # ===========================================================================
