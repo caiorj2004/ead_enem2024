@@ -48,7 +48,7 @@ def _get_db_config() -> dict | None:
     """
     Lê as credenciais do banco PostgreSQL a partir de st.secrets["database"].
     Retorna None quando as credenciais não estiverem configuradas ou ainda
-    contiverem os valores de placeholder (modo template).
+    contiverem os valores de placeholder.
     """
     try:
         section = st.secrets["database"]
@@ -75,14 +75,23 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 
 @st.cache_data(show_spinner="Carregando dados do ENEM 2024…")
-def get_data(db_config: dict | None) -> tuple[pd.DataFrame, bool]:
-    df, is_demo = load_data(db_config)
+def get_data(db_config: dict) -> pd.DataFrame:
+    df = load_data(db_config)
     df = apply_labels(df)
-    return df, is_demo
+    return df
 
 
-_db_config        = _get_db_config()
-df_full, _is_demo = get_data(_db_config)
+_db_config = _get_db_config()
+
+if not _db_config:
+    st.error(
+        "⚠️ **Credenciais do banco de dados não configuradas.**\n\n"
+        "Configure as variáveis `host`, `port`, `dbname`, `user` e `password` "
+        "em **Settings → Secrets** no Streamlit Cloud para carregar os dados reais do ENEM 2024."
+    )
+    st.stop()
+
+df_full = get_data(_db_config)
 
 # ---------------------------------------------------------------------------
 # Sidebar – navegação + filtros globais

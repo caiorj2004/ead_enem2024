@@ -12,41 +12,17 @@ por isso a estratégia é agregar ambas as tabelas ao nível municipal via
 GROUP BY co_municipio_prova, e então fazer JOIN com a tabela de
 municípios. Isso reproduz exatamente o pipeline do script Colab.
 
-Modos de operação
------------------
-1. **Banco real (PostgreSQL)**
-   Quando `load_data()` recebe um `db_config` com credenciais válidas,
-   executa as 3 queries de agregação e retorna o DataFrame consolidado.
-   Configure as credenciais no Streamlit Cloud em Settings → Secrets.
-
-2. **Modo template / demonstração**
-   Sem credenciais (ou se a conexão falhar), os dados são gerados
-   sinteticamente ao nível municipal, permitindo que o dashboard funcione
-   completamente antes das credenciais serem fornecidas.
+Modo de operação
+----------------
+Requer credenciais PostgreSQL configuradas em Streamlit Cloud via
+Settings → Secrets (chaves: host, port, dbname, user, password).
 """
 
 from __future__ import annotations
 
-import os
-import sqlite3
 from typing import Any
 
-import numpy as np
 import pandas as pd
-
-# ---------------------------------------------------------------------------
-# Configurações
-# ---------------------------------------------------------------------------
-
-_SQLITE_PATH = os.path.join(os.path.dirname(__file__), "enem2024.db")
-
-# Bump this name whenever the schema changes to force SQLite cache recreation.
-# v3: added raca_nao_declarado, est_civil_divorciado/viuvo/nao_informado,
-#     nationality subtypes, treineiro_nao, conclusao_* columns.
-_SQLITE_TABLE = "enem2024_municipal_v3"
-
-SYNTHETIC_MUNICIPALITIES = 500
-RNG_SEED = 42
 
 # ---------------------------------------------------------------------------
 # SQL queries – réplica do pipeline do Colab (Q001-Q023 exaustivo)
@@ -141,202 +117,6 @@ GROUP BY co_municipio_prova
 
 QUERY_MUNICIPIOS = "SELECT codigo_municipio_dv, nome_municipio, cd_uf FROM municipio"
 
-# ---------------------------------------------------------------------------
-# Dados auxiliares para geração sintética
-# ---------------------------------------------------------------------------
-
-# (UF abbreviation, approximate number of IBGE municipalities)
-_UF_MUN_COUNTS = [
-    ("SP", 645), ("MG", 853), ("BA", 417), ("RS", 497), ("PR", 399),
-    ("SC", 295), ("RJ",  92), ("CE", 184), ("PE", 185), ("PA", 144),
-    ("GO", 246), ("PB", 223), ("MA", 217), ("PI", 224), ("AL", 102),
-    ("RN", 167), ("ES",  78), ("MS",  79), ("MT", 141), ("AM",  62),
-    ("DF",   1), ("SE",  75), ("TO", 139), ("RO",  52), ("AC",  22),
-    ("AP",  16), ("RR",  15),
-]
-_UFS       = [u for u, _ in _UF_MUN_COUNTS]
-_MUN_TOTAL = sum(c for _, c in _UF_MUN_COUNTS)
-_UF_W      = [c / _MUN_TOTAL for _, c in _UF_MUN_COUNTS]
-
-
-# ---------------------------------------------------------------------------
-# Geração de dados sintéticos (nível municipal)
-# ---------------------------------------------------------------------------
-
-def _create_synthetic_data(n: int = SYNTHETIC_MUNICIPALITIES) -> pd.DataFrame:
-    """
-    Gera um DataFrame sintético com uma linha por município, reproduzindo a
-    estrutura de colunas produzida pelo pipeline de agregação do Colab
-    (Q001-Q023 exaustivo + notas renomeadas para nota_*).
-    """
-    rng = np.random.default_rng(RNG_SEED)
-
-    ufs       = rng.choice(_UFS, size=n, p=_UF_W)
-    cod_7     = [str(rng.integers(1_000_000, 9_999_999)) for _ in range(n)]
-    municipio = [f"Município {i+1:04d}" for i in range(n)]
-
-    # Total de inscritos – log-normal
-    total      = np.round(rng.lognormal(mean=6.5, sigma=1.2, size=n)).astype(int).clip(30, 80_000)
-    media_idade = rng.uniform(17.5, 22.5, size=n).round(2)
-
-    def _cnt(pct: np.ndarray) -> np.ndarray:
-        """Convert proportion array to rounded count based on `total`."""
-        return np.round(total * pct).astype(int)
-
-    # ── Demografics ────────────────────────────────────────────────────────
-    pct_fem      = rng.uniform(0.45, 0.65, size=n)
-    pct_parda    = rng.uniform(0.25, 0.60, size=n)
-    pct_branca   = rng.uniform(0.15, 0.55, size=n)
-    pct_preta    = rng.uniform(0.05, 0.20, size=n)
-    pct_amarela  = rng.uniform(0.01, 0.08, size=n)
-    pct_indigena = np.clip(1 - pct_parda - pct_branca - pct_preta - pct_amarela, 0.01, 0.10)
-
-    sexo_feminino              = _cnt(pct_fem)
-    sexo_masculino             = total - sexo_feminino
-    raca_parda                 = _cnt(pct_parda)
-    raca_branca                = _cnt(pct_branca)
-    raca_preta                 = _cnt(pct_preta)
-    raca_amarela               = _cnt(pct_amarela)
-    raca_indigena              = _cnt(pct_indigena)
-    raca_nao_declarado         = _cnt(rng.uniform(0.01, 0.04, size=n))
-    est_civil_solteiro         = _cnt(rng.uniform(0.75, 0.92, size=n))
-    est_civil_casado           = _cnt(rng.uniform(0.02, 0.12, size=n))
-    est_civil_divorciado       = _cnt(rng.uniform(0.01, 0.04, size=n))
-    est_civil_viuvo            = _cnt(rng.uniform(0.00, 0.01, size=n))
-    est_civil_nao_informado    = _cnt(rng.uniform(0.01, 0.04, size=n))
-    nacionalidade_brasileiro   = _cnt(rng.uniform(0.93, 0.98, size=n))
-    nacionalidade_nato_exterior  = _cnt(rng.uniform(0.001, 0.005, size=n))
-    nacionalidade_naturalizado   = _cnt(rng.uniform(0.001, 0.01, size=n))
-    nacionalidade_estrangeiro    = _cnt(rng.uniform(0.001, 0.005, size=n))
-    nacionalidade_nao_informado  = _cnt(rng.uniform(0.000, 0.002, size=n))
-    treineiro_sim              = _cnt(rng.uniform(0.05, 0.20, size=n))
-    treineiro_nao              = total - treineiro_sim
-    conclusao_ja_concluiu      = _cnt(rng.uniform(0.35, 0.50, size=n))
-    conclusao_cursando_2024    = _cnt(rng.uniform(0.25, 0.40, size=n))
-    conclusao_cursando_apos    = _cnt(rng.uniform(0.15, 0.25, size=n))
-    conclusao_nao_concluiu     = _cnt(rng.uniform(0.005, 0.015, size=n))
-
-    # ── Questionário: Escolaridade e Ocupação (Q001-Q004) ─────────────────
-    escolaridade_pai_pos = _cnt(rng.uniform(0.02, 0.12, size=n))
-    escolaridade_mae_pos = _cnt(rng.uniform(0.03, 0.14, size=n))
-    ocupacao_pai_grupo5  = _cnt(rng.uniform(0.01, 0.10, size=n))
-    ocupacao_mae_grupo5  = _cnt(rng.uniform(0.01, 0.08, size=n))
-
-    # ── Questionário: Renda (Q006-Q007) ───────────────────────────────────
-    possui_renda_sim       = _cnt(rng.uniform(0.20, 0.60, size=n))
-    renda_familiar_nenhuma = _cnt(rng.uniform(0.05, 0.25, size=n))
-    renda_familiar_classe_a = _cnt(rng.uniform(0.00, 0.08, size=n))
-
-    # ── Questionário: Bens e Tecnologia (Q008-Q022) ───────────────────────
-    empregado_domestico_sim = _cnt(rng.uniform(0.02, 0.15, size=n))
-    banheiro_1              = _cnt(rng.uniform(0.40, 0.65, size=n))
-    banheiro_2              = _cnt(rng.uniform(0.15, 0.35, size=n))
-    banheiro_3_ou_mais      = _cnt(rng.uniform(0.02, 0.12, size=n))
-    quarto_3_ou_mais        = _cnt(rng.uniform(0.10, 0.35, size=n))
-    carro_1                 = _cnt(rng.uniform(0.25, 0.55, size=n))
-    carro_2_ou_mais         = _cnt(rng.uniform(0.05, 0.20, size=n))
-    motocicleta_sim         = _cnt(rng.uniform(0.20, 0.55, size=n))
-    geladeira_sim           = _cnt(rng.uniform(0.80, 0.98, size=n))
-    freezer_sim             = _cnt(rng.uniform(0.10, 0.40, size=n))
-    maquina_lavar_sim       = _cnt(rng.uniform(0.50, 0.85, size=n))
-    micro_ondas_sim         = _cnt(rng.uniform(0.40, 0.75, size=n))
-    aspirador_po_sim        = _cnt(rng.uniform(0.05, 0.30, size=n))
-    tv_sim                  = _cnt(rng.uniform(0.75, 0.97, size=n))
-    tv_assinatura_sim       = _cnt(rng.uniform(0.15, 0.50, size=n))
-    internet_wifi_sim       = _cnt(rng.uniform(0.55, 0.95, size=n))
-    computador_1            = _cnt(rng.uniform(0.25, 0.55, size=n))
-    computador_2_ou_mais    = _cnt(rng.uniform(0.05, 0.20, size=n))
-    celular_3_ou_mais       = _cnt(rng.uniform(0.05, 0.25, size=n))
-
-    # ── Questionário: Escola (Q023) ───────────────────────────────────────
-    pct_publica         = rng.uniform(0.35, 0.85, size=n)
-    tipo_escola_publica = _cnt(pct_publica)
-    tipo_escola_privada = _cnt(np.clip(1 - pct_publica, 0.05, 0.60))
-
-    # ── Notas médias municipais ───────────────────────────────────────────
-    base_score           = rng.normal(loc=500, scale=30, size=n)
-    nota_ciencias_natureza = (base_score + rng.normal(0, 15, n)).clip(380, 680).round(2)
-    nota_ciencias_humanas  = (base_score + rng.normal(5, 12, n)).clip(390, 690).round(2)
-    nota_linguagens        = (base_score + rng.normal(8, 10, n)).clip(400, 695).round(2)
-    nota_matematica        = (base_score + rng.normal(-5, 20, n)).clip(370, 700).round(2)
-    nota_redacao           = (base_score * 1.15 + rng.normal(30, 50, n)).clip(350, 820).round(2)
-    nota_geral_media       = (
-        (nota_ciencias_natureza + nota_ciencias_humanas + nota_linguagens
-         + nota_matematica + nota_redacao) / 5
-    ).round(2)
-
-    return pd.DataFrame({
-        "cod_7":                      cod_7,
-        "municipio":                  municipio,
-        "uf":                         ufs,
-        "total_inscritos":            total,
-        "media_idade":                media_idade,
-        # Demografics
-        "sexo_feminino":              sexo_feminino,
-        "sexo_masculino":             sexo_masculino,
-        "raca_branca":                raca_branca,
-        "raca_preta":                 raca_preta,
-        "raca_parda":                 raca_parda,
-        "raca_amarela":               raca_amarela,
-        "raca_indigena":              raca_indigena,
-        "raca_nao_declarado":         raca_nao_declarado,
-        "est_civil_solteiro":         est_civil_solteiro,
-        "est_civil_casado":           est_civil_casado,
-        "est_civil_divorciado":       est_civil_divorciado,
-        "est_civil_viuvo":            est_civil_viuvo,
-        "est_civil_nao_informado":    est_civil_nao_informado,
-        "nacionalidade_brasileiro":   nacionalidade_brasileiro,
-        "nacionalidade_nato_exterior":  nacionalidade_nato_exterior,
-        "nacionalidade_naturalizado":   nacionalidade_naturalizado,
-        "nacionalidade_estrangeiro":    nacionalidade_estrangeiro,
-        "nacionalidade_nao_informado":  nacionalidade_nao_informado,
-        "treineiro_sim":              treineiro_sim,
-        "treineiro_nao":              treineiro_nao,
-        "conclusao_ja_concluiu":      conclusao_ja_concluiu,
-        "conclusao_cursando_2024":    conclusao_cursando_2024,
-        "conclusao_cursando_apos":    conclusao_cursando_apos,
-        "conclusao_nao_concluiu":     conclusao_nao_concluiu,
-        # Q001-Q004 Escolaridade / Ocupação
-        "escolaridade_pai_pos":       escolaridade_pai_pos,
-        "escolaridade_mae_pos":       escolaridade_mae_pos,
-        "ocupacao_pai_grupo5":        ocupacao_pai_grupo5,
-        "ocupacao_mae_grupo5":        ocupacao_mae_grupo5,
-        # Q006-Q007 Renda
-        "possui_renda_sim":           possui_renda_sim,
-        "renda_familiar_nenhuma":     renda_familiar_nenhuma,
-        "renda_familiar_classe_a":    renda_familiar_classe_a,
-        # Q008-Q022 Bens e Tecnologia
-        "empregado_domestico_sim":    empregado_domestico_sim,
-        "banheiro_1":                 banheiro_1,
-        "banheiro_2":                 banheiro_2,
-        "banheiro_3_ou_mais":         banheiro_3_ou_mais,
-        "quarto_3_ou_mais":           quarto_3_ou_mais,
-        "carro_1":                    carro_1,
-        "carro_2_ou_mais":            carro_2_ou_mais,
-        "motocicleta_sim":            motocicleta_sim,
-        "geladeira_sim":              geladeira_sim,
-        "freezer_sim":                freezer_sim,
-        "maquina_lavar_sim":          maquina_lavar_sim,
-        "micro_ondas_sim":            micro_ondas_sim,
-        "aspirador_po_sim":           aspirador_po_sim,
-        "tv_sim":                     tv_sim,
-        "tv_assinatura_sim":          tv_assinatura_sim,
-        "internet_wifi_sim":          internet_wifi_sim,
-        "computador_1":               computador_1,
-        "computador_2_ou_mais":       computador_2_ou_mais,
-        "celular_3_ou_mais":          celular_3_ou_mais,
-        # Q023 Escola
-        "tipo_escola_publica":        tipo_escola_publica,
-        "tipo_escola_privada":        tipo_escola_privada,
-        # Notas (renamed to nota_*)
-        "nota_ciencias_natureza":     nota_ciencias_natureza,
-        "nota_ciencias_humanas":      nota_ciencias_humanas,
-        "nota_linguagens":            nota_linguagens,
-        "nota_matematica":            nota_matematica,
-        "nota_redacao":               nota_redacao,
-        "nota_geral_media":           nota_geral_media,
-    })
-
 
 # ---------------------------------------------------------------------------
 # PostgreSQL – conexão real (3 queries + merge)
@@ -398,56 +178,33 @@ def _pg_load(db_config: dict[str, Any]) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# SQLite – modo template / demonstração
-# ---------------------------------------------------------------------------
-
-def _sqlite_load(db_path: str = _SQLITE_PATH) -> pd.DataFrame:
-    """Carrega (ou cria) os dados sintéticos municipais em SQLite local."""
-    conn = sqlite3.connect(db_path)
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (_SQLITE_TABLE,),
-        )
-        if cursor.fetchone() is None:
-            _create_synthetic_data().to_sql(
-                _SQLITE_TABLE, conn, if_exists="replace", index=False
-            )
-            conn.commit()
-        df = pd.read_sql(f"SELECT * FROM {_SQLITE_TABLE}", conn)  # noqa: S608
-    finally:
-        conn.close()
-    return df
-
-
-# ---------------------------------------------------------------------------
 # API pública
 # ---------------------------------------------------------------------------
 
-def load_data(db_config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, bool]:
+def load_data(db_config: dict[str, Any]) -> pd.DataFrame:
     """
-    Carrega os dados do ENEM 2024 agregados ao nível municipal.
-
-    Quando `db_config` é fornecido, conecta ao PostgreSQL e executa o pipeline
-    de 3 queries. Erros de conexão são propagados (não há fallback silencioso).
-
-    Quando `db_config` é None, usa banco SQLite local com dados sintéticos
-    municipais (modo demonstração).
+    Carrega os dados do ENEM 2024 agregados ao nível municipal via PostgreSQL.
 
     Parameters
     ----------
-    db_config : dict | None
-        Credenciais do banco real (lidas de st.secrets em app.py).
+    db_config : dict
+        Credenciais do banco (lidas de st.secrets["database"] em app.py).
         Chaves esperadas: ``host``, ``port``, ``dbname``, ``user``, ``password``.
 
     Returns
     -------
-    df       : pd.DataFrame com uma linha por município.
-    is_demo  : bool – True quando os dados são sintéticos (modo template).
-    """
-    if db_config:
-        df = _pg_load(db_config)
-        return df, False
+    pd.DataFrame com uma linha por município.
 
-    return _sqlite_load(), True
+    Raises
+    ------
+    ValueError       – se ``db_config`` for None ou vazio.
+    ImportError      – se psycopg2-binary não estiver instalado.
+    psycopg2.Error   – erros de conexão ou query.
+    """
+    if not db_config:
+        raise ValueError(
+            "Credenciais do banco de dados não configuradas. "
+            "Configure as variáveis em Settings → Secrets no Streamlit Cloud."
+        )
+    return _pg_load(db_config)
+
