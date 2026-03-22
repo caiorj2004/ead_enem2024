@@ -86,7 +86,7 @@ st.set_page_config(
 # Cache – carrega os dados uma única vez
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner="Carregando dados do ENEM 2024…")
+@st.cache_data(show_spinner="Carregando dados do ENEM 2024…", ttl=3600, persist="disk")
 def get_data(db_config: dict) -> pd.DataFrame:
     df = load_data(db_config)
     df = apply_labels(df)
