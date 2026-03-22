@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
+import plotly.graph_objects as go
 import streamlit as st
 
 from analysis import (
@@ -505,6 +506,31 @@ elif page == "📈 Variáveis Quantitativas":
         grp_table = mean_scores_by_group(df, sel_score_box_col, "uf")
         st.dataframe(grp_table, use_container_width=True, hide_index=True)
 
+    st.markdown("---")
+
+    # ---- Médias ponderadas por UF (barras) ----
+    st.subheader("Médias Ponderadas por UF")
+    score_opt_grp = {score_label(c): c for c in available_scores}
+    sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="quant_uf_score")
+    sel_grp_col   = score_opt_grp[sel_grp_score]
+
+    grp_means = mean_scores_by_group(df, sel_grp_col, "uf")
+
+    fig_grp = px.bar(
+        grp_means,
+        x="Categoria",
+        y="Média Ponderada",
+        color="Média Ponderada",
+        color_continuous_scale="Tealrose",
+        text="Média Ponderada",
+        title=f"Média Ponderada de {sel_grp_score} por UF",
+    )
+    fig_grp.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+    fig_grp.update_layout(height=450, showlegend=False,
+                           coloraxis_showscale=False,
+                           xaxis_title="UF", yaxis_title="Nota Média Ponderada")
+    st.plotly_chart(fig_grp, use_container_width=True)
+
 
 # ===========================================================================
 # PÁGINA 4 – ANÁLISE DE CORRELAÇÃO
@@ -627,30 +653,23 @@ elif page == "🔗 Análise de Correlação":
         sel_y_col = score_options[sel_y_lbl]
 
         scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna()
-        fig_sc = px.scatter(
-            scatter_df,
-            x=sel_x_col,
-            y=sel_y_col,
-            size="total_inscritos",
-            size_max=20,
-            hover_name="municipio",
-            hover_data={"total_inscritos": True},
-            color_discrete_sequence=["#636EFA"],
-            opacity=0.5,
-            title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
-            labels={sel_x_col: sel_x_lbl, sel_y_col: sel_y_lbl},
-        )
         # Add OLS trend line without requiring statsmodels
-        x_vals  = scatter_df[sel_x_col].values
-        y_vals  = scatter_df[sel_y_col].values
+        x_vals    = scatter_df[sel_x_col].values
+        y_vals    = scatter_df[sel_y_col].values
         poly_coef = np.polyfit(x_vals, y_vals, 1)
         x_range   = np.linspace(x_vals.min(), x_vals.max(), 200)
+        fig_sc = go.Figure()
         fig_sc.add_scatter(
             x=x_range, y=np.polyval(poly_coef, x_range),
             mode="lines", line=dict(color="black", width=2, dash="dash"),
             name="Tendência (OLS)", showlegend=False,
         )
-        fig_sc.update_layout(height=520)
+        fig_sc.update_layout(
+            title=f"{sel_y_lbl} × {sel_x_lbl} (tendência OLS)",
+            xaxis_title=sel_x_lbl,
+            yaxis_title=sel_y_lbl,
+            height=520,
+        )
         st.plotly_chart(fig_sc, use_container_width=True)
 
         # Correlação pontual
@@ -661,28 +680,3 @@ elif page == "🔗 Análise de Correlação":
         )
     else:
         st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
-
-    st.markdown("---")
-
-    # ---- Médias ponderadas por UF ----
-    st.subheader("Médias Ponderadas por UF")
-    score_opt_grp = {score_label(c): c for c in available_scores}
-    sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="corr_uf_score")
-    sel_grp_col   = score_opt_grp[sel_grp_score]
-
-    grp_means = mean_scores_by_group(df, sel_grp_col, "uf")
-
-    fig_grp = px.bar(
-        grp_means,
-        x="Categoria",
-        y="Média Ponderada",
-        color="Média Ponderada",
-        color_continuous_scale="Tealrose",
-        text="Média Ponderada",
-        title=f"Média Ponderada de {sel_grp_score} por UF",
-    )
-    fig_grp.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-    fig_grp.update_layout(height=450, showlegend=False,
-                           coloraxis_showscale=False,
-                           xaxis_title="UF", yaxis_title="Nota Média Ponderada")
-    st.plotly_chart(fig_grp, use_container_width=True)
