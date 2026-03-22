@@ -1,12 +1,28 @@
 """
 analysis.py – Operações estatísticas e de análise dos dados do ENEM 2024.
 
-Expõe funções auxiliares usadas pelo aplicativo Streamlit (app.py):
-  - apply_labels          → adiciona colunas com rótulos legíveis
-  - frequency_table       → tabela de distribuição de frequência
-  - descriptive_stats     → estatísticas descritivas (incluindo assimetria e curtose)
-  - correlation_matrix    → matriz de correlação entre variáveis quantitativas
-  - mean_scores_by_group  → média de uma nota agrupada por categoria
+O DataFrame de entrada tem uma linha por município (estrutura produzida
+pelo pipeline de agregação em database.py) com as seguintes colunas:
+
+  Identificação:  cod_7, municipio, uf
+  Participantes:  total_inscritos, media_idade
+                  sexo_feminino, sexo_masculino
+                  raca_branca, raca_preta, raca_parda, raca_amarela, raca_indigena
+                  est_civil_solteiro, est_civil_casado, nac_brasileiro
+                  concluiu_em, ensino_regular, classe_media_alta
+                  tem_internet, tem_computador
+  Resultados:     media_cn, media_ch, media_lc, media_mt, media_redacao, media_geral
+
+Após apply_labels() são adicionadas colunas derivadas pct_* (proporções).
+
+Funções exportadas
+------------------
+  apply_labels        – mapeia uf numérico para sigla e calcula pct_* columns
+  frequency_table     – tabela de distribuição de frequência para variável categórica
+  descriptive_stats   – estatísticas descritivas de colunas numéricas
+  correlation_matrix  – matriz de correlação (Pearson/Spearman/Kendall)
+  mean_scores_by_group – médias de uma nota agrupadas por UF
+  normality_test      – Shapiro-Wilk
 """
 
 from __future__ import annotations
@@ -16,68 +32,85 @@ import numpy as np
 from scipy import stats as scipy_stats
 
 # ---------------------------------------------------------------------------
-# Mapeamentos de rótulos
+# Mapeamento IBGE código numérico de UF → sigla
 # ---------------------------------------------------------------------------
 
-COR_RACA_MAP: dict[int, str] = {
-    0: "Não declarado",
-    1: "Branca",
-    2: "Parda",
-    3: "Preta",
-    4: "Amarela",
-    5: "Indígena",
+IBGE_UF_MAP: dict[int, str] = {
+    11: "RO", 12: "AC", 13: "AM", 14: "RR", 15: "PA",
+    16: "AP", 17: "TO", 21: "MA", 22: "PI", 23: "CE",
+    24: "RN", 25: "PB", 26: "PE", 27: "AL", 28: "SE",
+    29: "BA", 31: "MG", 32: "ES", 33: "RJ", 35: "SP",
+    41: "PR", 42: "SC", 43: "RS", 50: "MS", 51: "MT",
+    52: "GO", 53: "DF",
 }
 
-SEXO_MAP: dict[str, str] = {
-    "M": "Masculino",
-    "F": "Feminino",
-}
+# ---------------------------------------------------------------------------
+# Variáveis qualitativas (ao nível municipal)
+# ---------------------------------------------------------------------------
 
-ESCOLA_MAP: dict[int, str] = {
-    1: "Não respondeu",
-    2: "Pública",
-    3: "Privada",
-    4: "Exterior",
-}
-
-ST_CONCLUSAO_MAP: dict[int, str] = {
-    1: "Já concluiu",
-    2: "Cursando – conclui em 2024",
-    3: "Cursando – não conclui em 2024",
-    4: "Não está cursando",
-}
-
-TREINEIRO_MAP: dict[int, str] = {
-    0: "Não",
-    1: "Sim",
-}
-
-# Rótulos exibidos nos gráficos/tabelas para variáveis categóricas
+# Única variável categórica genuína no DataFrame consolidado
 QUALITATIVE_VARS: list[dict] = [
-    {"col": "TP_SEXO",          "label_col": "SEXO_DESC",         "title": "Sexo"},
-    {"col": "TP_COR_RACA",      "label_col": "COR_RACA_DESC",     "title": "Raça/Cor"},
-    {"col": "TP_ESCOLA",        "label_col": "ESCOLA_DESC",       "title": "Tipo de Escola"},
-    {"col": "TP_ST_CONCLUSAO",  "label_col": "ST_CONCLUSAO_DESC", "title": "Situação de Conclusão"},
-    {"col": "IN_TREINEIRO",     "label_col": "TREINEIRO_DESC",    "title": "Treineiro"},
-    {"col": "SG_UF_RESIDENCIA", "label_col": "SG_UF_RESIDENCIA",  "title": "UF de Residência"},
+    {"col": "uf", "title": "UF (Estado)"},
 ]
 
-# Variáveis quantitativas (notas)
-QUANTITATIVE_VARS: list[str] = [
-    "NU_NOTA_CN",
-    "NU_NOTA_CH",
-    "NU_NOTA_LC",
-    "NU_NOTA_MT",
-    "NU_NOTA_REDACAO",
+# ---------------------------------------------------------------------------
+# Variáveis quantitativas – notas médias municipais
+# ---------------------------------------------------------------------------
+
+SCORE_COLS: list[str] = [
+    "media_cn",
+    "media_ch",
+    "media_lc",
+    "media_mt",
+    "media_redacao",
+    "media_geral",
 ]
 
 SCORE_LABELS: dict[str, str] = {
-    "NU_NOTA_CN":      "Ciências da Natureza",
-    "NU_NOTA_CH":      "Ciências Humanas",
-    "NU_NOTA_LC":      "Linguagens e Códigos",
-    "NU_NOTA_MT":      "Matemática",
-    "NU_NOTA_REDACAO": "Redação",
+    "media_cn":      "Ciências da Natureza",
+    "media_ch":      "Ciências Humanas",
+    "media_lc":      "Linguagens e Códigos",
+    "media_mt":      "Matemática",
+    "media_redacao": "Redação",
+    "media_geral":   "Média Geral",
 }
+
+# ---------------------------------------------------------------------------
+# Colunas de proporção (derivadas em apply_labels)
+# ---------------------------------------------------------------------------
+
+# Mapeamento: coluna_pct → coluna_contagem_origem
+PROPORTION_MAP: dict[str, str] = {
+    "pct_feminino":        "sexo_feminino",
+    "pct_parda":           "raca_parda",
+    "pct_branca":          "raca_branca",
+    "pct_preta":           "raca_preta",
+    "pct_amarela":         "raca_amarela",
+    "pct_indigena":        "raca_indigena",
+    "pct_solteiro":        "est_civil_solteiro",
+    "pct_concluiu_em":     "concluiu_em",
+    "pct_ensino_regular":  "ensino_regular",
+    "pct_classe_media_alta": "classe_media_alta",
+    "pct_internet":        "tem_internet",
+    "pct_computador":      "tem_computador",
+}
+
+PROPORTION_LABELS: dict[str, str] = {
+    "pct_feminino":          "% Feminino",
+    "pct_parda":             "% Parda",
+    "pct_branca":            "% Branca",
+    "pct_preta":             "% Preta",
+    "pct_amarela":           "% Amarela",
+    "pct_indigena":          "% Indígena",
+    "pct_solteiro":          "% Solteiro(a)",
+    "pct_concluiu_em":       "% Concluiu EM",
+    "pct_ensino_regular":    "% Ensino Regular",
+    "pct_classe_media_alta": "% Classe Média/Alta",
+    "pct_internet":          "% com Internet",
+    "pct_computador":        "% com Computador",
+}
+
+PROPORTION_COLS: list[str] = list(PROPORTION_MAP.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -86,20 +119,34 @@ SCORE_LABELS: dict[str, str] = {
 
 def apply_labels(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Retorna uma cópia do DataFrame com colunas de rótulos adicionadas
-    para cada variável categórica codificada numericamente.
+    Retorna uma cópia do DataFrame com:
+    1. Coluna `uf` convertida de código IBGE numérico para sigla (quando aplicável).
+    2. Colunas `pct_*` com a proporção de cada grupo em relação a `total_inscritos`.
     """
     df = df.copy()
-    mappings = [
-        ("TP_COR_RACA",     COR_RACA_MAP,     "COR_RACA_DESC"),
-        ("TP_SEXO",         SEXO_MAP,         "SEXO_DESC"),
-        ("TP_ESCOLA",       ESCOLA_MAP,       "ESCOLA_DESC"),
-        ("TP_ST_CONCLUSAO", ST_CONCLUSAO_MAP, "ST_CONCLUSAO_DESC"),
-        ("IN_TREINEIRO",    TREINEIRO_MAP,    "TREINEIRO_DESC"),
-    ]
-    for src_col, mapping, dst_col in mappings:
-        if src_col in df.columns:
-            df[dst_col] = df[src_col].map(mapping)
+
+    # Converte código numérico de UF para sigla, se necessário
+    if "uf" in df.columns:
+        sample = df["uf"].dropna().iloc[0] if len(df) > 0 else None
+        if sample is not None:
+            try:
+                numeric_val = int(float(str(sample)))
+                if numeric_val in IBGE_UF_MAP:
+                    df["uf"] = (
+                        pd.to_numeric(df["uf"], errors="coerce")
+                        .map(IBGE_UF_MAP)
+                        .fillna(df["uf"])
+                    )
+            except (ValueError, TypeError):
+                pass  # already a string abbreviation
+
+    # Calcula proporções (evita divisão por zero)
+    if "total_inscritos" in df.columns:
+        total = df["total_inscritos"].replace(0, np.nan)
+        for pct_col, count_col in PROPORTION_MAP.items():
+            if count_col in df.columns:
+                df[pct_col] = (df[count_col] / total * 100).round(2)
+
     return df
 
 
@@ -109,7 +156,10 @@ def apply_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 def frequency_table(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
-    Calcula a tabela de distribuição de frequência para uma variável categórica.
+    Tabela de distribuição de frequência para uma variável categórica.
+
+    Ao trabalhar com dados municipais, cada linha representa um município;
+    portanto a frequência absoluta conta municípios por categoria.
 
     Returns
     -------
@@ -118,18 +168,33 @@ def frequency_table(df: pd.DataFrame, column: str) -> pd.DataFrame:
         Freq. Absoluta Acumulada | Freq. Relativa Acumulada (%)
     """
     counts = df[column].value_counts(dropna=False)
-    total = counts.sum()
+    total  = counts.sum()
 
-    result = pd.DataFrame(
-        {
-            "Categoria": counts.index.astype(str),
-            "Freq. Absoluta": counts.values,
-            "Freq. Relativa (%)": (counts.values / total * 100).round(2),
-        }
-    )
-    result["Freq. Absoluta Acumulada"] = result["Freq. Absoluta"].cumsum()
+    result = pd.DataFrame({
+        "Categoria":          counts.index.astype(str),
+        "Freq. Absoluta":     counts.values,
+        "Freq. Relativa (%)": (counts.values / total * 100).round(2),
+    })
+    result["Freq. Absoluta Acumulada"]    = result["Freq. Absoluta"].cumsum()
     result["Freq. Relativa Acumulada (%)"] = result["Freq. Relativa (%)"].cumsum().round(2)
     return result.reset_index(drop=True)
+
+
+def inscribed_by_uf(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Agrega o total de inscritos por UF (soma de total_inscritos nos municípios).
+
+    Returns
+    -------
+    pd.DataFrame com colunas: uf | municipios | total_inscritos
+    """
+    agg = (
+        df.groupby("uf")
+        .agg(municipios=("cod_7", "count"), total_inscritos=("total_inscritos", "sum"))
+        .reset_index()
+        .sort_values("total_inscritos", ascending=False)
+    )
+    return agg
 
 
 # ---------------------------------------------------------------------------
@@ -138,42 +203,30 @@ def frequency_table(df: pd.DataFrame, column: str) -> pd.DataFrame:
 
 def descriptive_stats(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
     """
-    Retorna um DataFrame com as principais estatísticas descritivas das
-    variáveis quantitativas, incluindo mediana, coeficiente de variação,
-    assimetria e curtose.
+    Estatísticas descritivas das médias municipais de notas.
 
     Parameters
     ----------
-    df      : DataFrame com os dados.
-    columns : Lista de colunas a analisar. Se None, usa QUANTITATIVE_VARS.
-
-    Returns
-    -------
-    pd.DataFrame com índices = estatísticas e colunas = variáveis.
+    columns : Lista de colunas. Se None, usa SCORE_COLS disponíveis no df.
     """
     if columns is None:
-        columns = [c for c in QUANTITATIVE_VARS if c in df.columns]
+        columns = [c for c in SCORE_COLS if c in df.columns]
 
     subset = df[columns]
-
-    stats = subset.describe().rename(
-        index={
-            "count": "N",
-            "mean":  "Média",
-            "std":   "Desvio Padrão",
-            "min":   "Mínimo",
-            "25%":   "Q1 (25%)",
-            "50%":   "Mediana",
-            "75%":   "Q3 (75%)",
-            "max":   "Máximo",
-        }
-    )
-
+    stats  = subset.describe().rename(index={
+        "count": "N (municípios)",
+        "mean":  "Média",
+        "std":   "Desvio Padrão",
+        "min":   "Mínimo",
+        "25%":   "Q1 (25%)",
+        "50%":   "Mediana",
+        "75%":   "Q3 (75%)",
+        "max":   "Máximo",
+    })
     stats.loc["Assimetria (Skew)"] = subset.skew().round(4)
-    stats.loc["Curtose"]  = subset.kurtosis().round(4)
-    stats.loc["CV (%)"]   = (subset.std() / subset.mean() * 100).round(2)
+    stats.loc["Curtose"]           = subset.kurtosis().round(4)
+    stats.loc["CV (%)"]            = (subset.std() / subset.mean() * 100).round(2)
 
-    # Rename columns with friendly labels
     stats = stats.rename(columns=SCORE_LABELS)
     return stats.round(4)
 
@@ -188,18 +241,19 @@ def correlation_matrix(
     method: str = "pearson",
 ) -> pd.DataFrame:
     """
-    Calcula a matriz de correlação entre as variáveis quantitativas.
+    Matriz de correlação entre variáveis quantitativas.
 
     Parameters
     ----------
-    columns : Lista de colunas. Se None, usa QUANTITATIVE_VARS.
+    columns : Lista de colunas numéricas. Se None, usa SCORE_COLS disponíveis.
     method  : 'pearson', 'spearman' ou 'kendall'.
     """
     if columns is None:
-        columns = [c for c in QUANTITATIVE_VARS if c in df.columns]
+        columns = [c for c in SCORE_COLS if c in df.columns]
 
+    all_labels = {**SCORE_LABELS, **PROPORTION_LABELS}
     corr = df[columns].corr(method=method).round(4)
-    corr = corr.rename(index=SCORE_LABELS, columns=SCORE_LABELS)
+    corr = corr.rename(index=all_labels, columns=all_labels)
     return corr
 
 
@@ -210,58 +264,63 @@ def correlation_matrix(
 def mean_scores_by_group(
     df: pd.DataFrame,
     score_col: str,
-    group_col: str,
+    group_col: str = "uf",
 ) -> pd.DataFrame:
     """
-    Calcula média, mediana e N de `score_col` para cada grupo de `group_col`.
+    Média ponderada (por total_inscritos) e N de municípios de `score_col`
+    para cada grupo de `group_col`.
 
     Returns
     -------
-    pd.DataFrame com colunas: Categoria | Média | Mediana | N
+    pd.DataFrame com colunas: Categoria | Média Ponderada | N municípios
     """
-    agg = (
-        df.groupby(group_col)[score_col]
-        .agg(Média="mean", Mediana="median", N="count")
-        .round(2)
-        .reset_index()
-        .rename(columns={group_col: "Categoria"})
-        .sort_values("Média", ascending=False)
-    )
+    if "total_inscritos" in df.columns and score_col in SCORE_COLS:
+        # Weighted mean: reflect actual participant counts.
+        # include_groups=False requires pandas >= 2.2 (see requirements.txt).
+        agg = (
+            df.dropna(subset=[score_col, group_col])
+            .groupby(group_col)
+            .apply(
+                lambda g: pd.Series({
+                    "Média Ponderada": np.average(g[score_col], weights=g["total_inscritos"]),
+                    "N municípios":    len(g),
+                }),
+                include_groups=False,
+            )
+            .round(2)
+            .reset_index()
+            .rename(columns={group_col: "Categoria"})
+            .sort_values("Média Ponderada", ascending=False)
+        )
+    else:
+        agg = (
+            df.groupby(group_col)[score_col]
+            .agg(**{"Média Ponderada": "mean", "N municípios": "count"})
+            .round(2)
+            .reset_index()
+            .rename(columns={group_col: "Categoria"})
+            .sort_values("Média Ponderada", ascending=False)
+        )
     return agg
 
 
-def score_percentiles(df: pd.DataFrame, column: str, q: list[float] | None = None) -> pd.Series:
-    """
-    Retorna percentis de uma coluna de notas.
-
-    Parameters
-    ----------
-    q : Lista de percentis (0–100). Padrão: [10, 25, 50, 75, 90].
-    """
-    if q is None:
-        q = [10, 25, 50, 75, 90]
-    percentiles = np.percentile(df[column].dropna(), q)
-    return pd.Series(percentiles, index=[f"P{int(p)}" for p in q])
-
+# ---------------------------------------------------------------------------
+# Normalidade
+# ---------------------------------------------------------------------------
 
 def normality_test(df: pd.DataFrame, column: str) -> dict:
     """
-    Realiza o teste de Shapiro-Wilk (amostra ≤ 5000) ou D'Agostino-Pearson
-    (amostra > 5000) para verificar normalidade.
-
-    Returns
-    -------
-    dict com chaves: 'teste', 'estatística', 'p_valor', 'normal'
+    Teste de Shapiro-Wilk para normalidade.
+    Usa uma amostra de até 5000 linhas para grandes DataFrames.
     """
     sample = df[column].dropna()
-    n = len(sample)
-    if n > 5000:
+    if len(sample) > 5000:
         sample = sample.sample(5000, random_state=42)
 
     stat, pval = scipy_stats.shapiro(sample)
     return {
-        "teste": "Shapiro-Wilk",
+        "teste":       "Shapiro-Wilk",
         "estatística": round(float(stat), 6),
-        "p_valor": round(float(pval), 6),
-        "normal": bool(pval > 0.05),
+        "p_valor":     round(float(pval), 6),
+        "normal":      bool(pval > 0.05),
     }

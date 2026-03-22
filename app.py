@@ -1,11 +1,14 @@
 """
 app.py – Dashboard ENEM 2024 (Streamlit)
 
+Os dados estão agregados ao nível municipal: uma linha por município,
+produzida pelo pipeline de 3 tabelas (participantes, resultados, municipio).
+
 Páginas disponíveis no menu lateral:
-  🏠 Visão Geral          → métricas resumidas e prévia dos dados
-  📊 Variáveis Qualitativas → tabelas de frequência + gráficos de barra/pizza
-  📈 Variáveis Quantitativas → histogramas e box plots das notas
-  🔗 Análise de Correlação  → heatmap e scatter matrix das notas
+  🏠 Visão Geral           → KPIs nacionais, inscritos por UF, médias por área
+  📊 Variáveis Qualitativas → distribuição de municípios por UF; composição demográfica
+  📈 Variáveis Quantitativas → histogramas e box plots das médias municipais de notas
+  🔗 Análise de Correlação  → heatmap e scatter matrix notas × proporções demográficas
 """
 
 import warnings
@@ -14,23 +17,24 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
-import plotly.graph_objects as go
 import streamlit as st
 
 from analysis import (
+    PROPORTION_COLS,
+    PROPORTION_LABELS,
     QUALITATIVE_VARS,
-    QUANTITATIVE_VARS,
+    SCORE_COLS,
     SCORE_LABELS,
     apply_labels,
     correlation_matrix,
     descriptive_stats,
     frequency_table,
+    inscribed_by_uf,
     mean_scores_by_group,
     normality_test,
 )
 from database import load_data
 
-# Suppress only Plotly/pandas FutureWarnings that are known to be harmless
 warnings.filterwarnings("ignore", category=FutureWarning, module="plotly")
 
 
@@ -41,21 +45,17 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="plotly")
 def _get_db_config() -> dict | None:
     """
     Lê as credenciais do banco PostgreSQL a partir de st.secrets["database"].
-
-    Retorna None quando as credenciais não estiverem configuradas
-    (modo template / demonstração).
-
-    As chaves esperadas em secrets.toml são:
-        host, port, dbname, user, password, table (opcional)
+    Retorna None quando as credenciais não estiverem configuradas ou ainda
+    contiverem os valores de placeholder (modo template).
     """
     try:
         section = st.secrets["database"]
-        # Retorna None se ainda forem os valores de placeholder
         if str(section.get("host", "")).upper().startswith("SEU_"):
             return None
         return dict(section)
     except (KeyError, FileNotFoundError):
         return None
+
 
 # ---------------------------------------------------------------------------
 # Configuração da página
@@ -79,7 +79,7 @@ def get_data(db_config: dict | None) -> tuple[pd.DataFrame, bool]:
     return df, is_demo
 
 
-_db_config = _get_db_config()
+_db_config        = _get_db_config()
 df_full, _is_demo = get_data(_db_config)
 
 # ---------------------------------------------------------------------------
@@ -101,28 +101,30 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("Filtros globais")
 
 # Filtro por UF
-all_ufs = sorted(df_full["SG_UF_RESIDENCIA"].dropna().unique().tolist())
-sel_ufs = st.sidebar.multiselect("UF de Residência", all_ufs, default=all_ufs)
+all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
+sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
 
-# Filtro por tipo de escola
-escola_opts = df_full["ESCOLA_DESC"].dropna().unique().tolist()
-sel_escola = st.sidebar.multiselect("Tipo de Escola", escola_opts, default=escola_opts)
-
-# Filtro por sexo
-sexo_opts = df_full["SEXO_DESC"].dropna().unique().tolist()
-sel_sexo = st.sidebar.multiselect("Sexo", sexo_opts, default=sexo_opts)
+# Filtro por tamanho do município (total_inscritos)
+min_ins = int(df_full["total_inscritos"].min())
+max_ins = int(df_full["total_inscritos"].max())
+sel_min_ins = st.sidebar.slider(
+    "Mínimo de inscritos por município",
+    min_value=min_ins,
+    max_value=max_ins,
+    value=min_ins,
+    step=max(1, (max_ins - min_ins) // 200),
+)
 
 # Aplica filtros
 df = df_full[
-    df_full["SG_UF_RESIDENCIA"].isin(sel_ufs)
-    & df_full["ESCOLA_DESC"].isin(sel_escola)
-    & df_full["SEXO_DESC"].isin(sel_sexo)
+    df_full["uf"].isin(sel_ufs)
+    & (df_full["total_inscritos"] >= sel_min_ins)
 ].copy()
 
-st.sidebar.markdown(f"**Registros filtrados:** {len(df):,}")
+st.sidebar.markdown(f"**Municípios filtrados:** {len(df):,}")
 
 # ---------------------------------------------------------------------------
-# Banner de modo template (visível em todas as páginas)
+# Banner de modo template
 # ---------------------------------------------------------------------------
 
 if _is_demo:
@@ -141,13 +143,13 @@ if _is_demo:
 
 PALETTE = px.colors.qualitative.Plotly
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 def score_label(col: str) -> str:
-    return SCORE_LABELS.get(col, col)
+    return SCORE_LABELS.get(col, PROPORTION_LABELS.get(col, col))
 
 
 def card_metric(col, label, value, delta=None):
@@ -162,76 +164,92 @@ def card_metric(col, label, value, delta=None):
 if page == "🏠 Visão Geral":
     st.title("🏠 Visão Geral – ENEM 2024")
     st.markdown(
-        "Este dashboard apresenta análises exploratórias dos microdados do **ENEM 2024**. "
+        "Análise exploratória dos microdados do **ENEM 2024** agregados ao nível municipal. "
+        "Cada ponto de dados representa um município. "
         "Use os filtros no painel lateral para refinar a visualização."
     )
     st.markdown("---")
 
-    # --- Métricas principais ---
-    total = len(df)
-    pct_fem = df["SEXO_DESC"].value_counts(normalize=True).get("Feminino", 0) * 100
-    pct_pub = df["ESCOLA_DESC"].value_counts(normalize=True).get("Pública", 0) * 100
-    media_geral = df[QUANTITATIVE_VARS].mean().mean()
+    # --- KPIs ---
+    n_municipios   = len(df)
+    total_inscritos = int(df["total_inscritos"].sum())
+    media_idade     = float(
+        np.average(df["media_idade"], weights=df["total_inscritos"])
+        if "total_inscritos" in df.columns else df["media_idade"].mean()
+    )
+    available_scores = [c for c in SCORE_COLS if c in df.columns]
+    media_geral_br   = (
+        float(np.average(df["media_geral"], weights=df["total_inscritos"]))
+        if "media_geral" in df.columns
+        else float(df[available_scores].mean().mean())
+    )
 
     c1, c2, c3, c4 = st.columns(4)
-    card_metric(c1, "Total de Participantes", f"{total:,}")
-    card_metric(c2, "% Feminino", f"{pct_fem:.1f}%")
-    card_metric(c3, "% Escola Pública", f"{pct_pub:.1f}%")
-    card_metric(c4, "Média Geral (todas as provas)", f"{media_geral:.1f}")
+    card_metric(c1, "Municípios analisados",        f"{n_municipios:,}")
+    card_metric(c2, "Total de inscritos",            f"{total_inscritos:,}")
+    card_metric(c3, "Média de idade (ponderada)",    f"{media_idade:.1f} anos")
+    card_metric(c4, "Média geral nacional (ponderada)", f"{media_geral_br:.1f}")
 
     st.markdown("---")
 
-    # --- Distribuição por UF (top 10) ---
-    col_map, col_age = st.columns(2)
+    # --- Inscritos por UF ---
+    col_uf, col_scores = st.columns(2)
 
-    with col_map:
-        st.subheader("Participantes por UF")
-        uf_counts = df["SG_UF_RESIDENCIA"].value_counts().reset_index()
-        uf_counts.columns = ["UF", "Participantes"]
+    with col_uf:
+        st.subheader("Total de Inscritos por UF")
+        uf_agg = inscribed_by_uf(df).head(27)
         fig_uf = px.bar(
-            uf_counts.head(27),
-            x="UF",
-            y="Participantes",
-            color="Participantes",
+            uf_agg,
+            x="uf",
+            y="total_inscritos",
+            color="total_inscritos",
             color_continuous_scale="Blues",
             text_auto=True,
+            labels={"uf": "UF", "total_inscritos": "Inscritos"},
         )
-        fig_uf.update_layout(height=380, showlegend=False, xaxis_title="UF",
-                              yaxis_title="Participantes",
-                              coloraxis_showscale=False)
+        fig_uf.update_layout(height=400, showlegend=False,
+                              coloraxis_showscale=False,
+                              xaxis_title="UF", yaxis_title="Inscritos")
         st.plotly_chart(fig_uf, use_container_width=True)
 
-    with col_age:
-        st.subheader("Distribuição de Idade")
-        fig_age = px.histogram(
-            df,
-            x="NU_IDADE",
-            nbins=40,
-            color_discrete_sequence=["#636EFA"],
-            labels={"NU_IDADE": "Idade"},
-        )
-        fig_age.update_layout(height=380, bargap=0.05,
-                               xaxis_title="Idade", yaxis_title="Frequência")
-        st.plotly_chart(fig_age, use_container_width=True)
+    with col_scores:
+        st.subheader("Médias Nacionais por Área de Conhecimento")
+        if available_scores:
+            medias = pd.Series({
+                SCORE_LABELS[c]: float(np.average(df[c].dropna(),
+                                                   weights=df.loc[df[c].notna(), "total_inscritos"]))
+                for c in available_scores if c in df.columns
+            })
+            fig_medias = px.bar(
+                x=medias.index,
+                y=medias.values,
+                color=medias.values,
+                color_continuous_scale="Viridis",
+                text=[f"{v:.1f}" for v in medias.values],
+                labels={"x": "Área", "y": "Média"},
+            )
+            fig_medias.update_traces(textposition="outside")
+            fig_medias.update_layout(height=400, showlegend=False,
+                                     coloraxis_showscale=False,
+                                     xaxis_title="Área", yaxis_title="Média")
+            st.plotly_chart(fig_medias, use_container_width=True)
 
-    # --- Médias das notas ---
-    st.subheader("Médias por Área de Conhecimento")
-    medias = df[QUANTITATIVE_VARS].mean().rename(SCORE_LABELS)
-    fig_medias = px.bar(
-        x=medias.index,
-        y=medias.values,
-        labels={"x": "Área", "y": "Média"},
-        color=medias.values,
-        color_continuous_scale="Viridis",
-        text=[f"{v:.1f}" for v in medias.values],
+    # --- Distribuição do tamanho dos municípios ---
+    st.subheader("Distribuição do Total de Inscritos por Município (escala log)")
+    fig_hist_ins = px.histogram(
+        df,
+        x="total_inscritos",
+        nbins=60,
+        log_x=True,
+        color_discrete_sequence=["#636EFA"],
+        labels={"total_inscritos": "Total de Inscritos"},
     )
-    fig_medias.update_traces(textposition="outside")
-    fig_medias.update_layout(height=400, showlegend=False,
-                              coloraxis_showscale=False)
-    st.plotly_chart(fig_medias, use_container_width=True)
+    fig_hist_ins.update_layout(height=360, xaxis_title="Total de Inscritos (log)",
+                                yaxis_title="Número de Municípios")
+    st.plotly_chart(fig_hist_ins, use_container_width=True)
 
     # --- Prévia dos dados ---
-    with st.expander("📋 Prévia dos dados (primeiras 200 linhas)"):
+    with st.expander("📋 Prévia dos dados municipais (primeiras 200 linhas)"):
         st.dataframe(df.head(200), use_container_width=True)
 
 
@@ -242,62 +260,127 @@ if page == "🏠 Visão Geral":
 elif page == "📊 Variáveis Qualitativas":
     st.title("📊 Variáveis Qualitativas")
     st.markdown(
-        "Tabelas de distribuição de frequência e gráficos para as "
-        "principais variáveis categóricas do ENEM 2024."
+        "Tabelas de distribuição de frequência e gráficos para a variável "
+        "categórica principal (UF) e a composição demográfica dos municípios."
     )
     st.markdown("---")
 
-    for var_info in QUALITATIVE_VARS:
-        col_raw   = var_info["col"]
-        col_label = var_info["label_col"]
-        title     = var_info["title"]
+    # ---- Seção 1: Distribuição por UF ----
+    st.subheader("🔹 Distribuição de Municípios por UF")
 
-        # Coluna de exibição: usa o label quando disponível
-        display_col = col_label if col_label in df.columns else col_raw
+    freq_df = frequency_table(df, "uf")
+    tab_table, tab_bar, tab_pie = st.tabs(
+        ["Tabela de Frequência", "Gráfico de Barras", "Gráfico de Pizza"]
+    )
 
-        if display_col not in df.columns and col_raw not in df.columns:
-            continue
+    with tab_table:
+        st.markdown("Cada linha representa quantos municípios estão em cada estado.")
+        st.dataframe(freq_df, use_container_width=True, hide_index=True)
 
-        st.subheader(f"🔹 {title}")
+    with tab_bar:
+        fig_bar = px.bar(
+            freq_df,
+            x="Categoria",
+            y="Freq. Absoluta",
+            text="Freq. Relativa (%)",
+            color="Categoria",
+            color_discrete_sequence=PALETTE,
+            labels={"Freq. Absoluta": "Nº de Municípios"},
+            title="Número de Municípios por UF",
+        )
+        fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_bar.update_layout(showlegend=False, height=440,
+                               xaxis_title="UF", yaxis_title="Municípios")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        # Tabela de frequência
-        freq_df = frequency_table(df, display_col)
+    with tab_pie:
+        fig_pie = px.pie(
+            freq_df,
+            names="Categoria",
+            values="Freq. Absoluta",
+            color_discrete_sequence=PALETTE,
+            title="Proporção de Municípios por UF",
+            hole=0.35,
+        )
+        fig_pie.update_traces(textinfo="percent+label")
+        fig_pie.update_layout(height=460)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-        tab_table, tab_bar, tab_pie = st.tabs(["Tabela de Frequência", "Gráfico de Barras", "Gráfico de Pizza"])
+    st.markdown("---")
 
-        with tab_table:
-            st.dataframe(freq_df, use_container_width=True, hide_index=True)
+    # ---- Seção 2: Total de Inscritos por UF ----
+    st.subheader("🔹 Total de Inscritos por UF")
+    uf_ins = inscribed_by_uf(df)
 
-        with tab_bar:
-            fig_bar = px.bar(
-                freq_df,
-                x="Categoria",
-                y="Freq. Absoluta",
-                text="Freq. Relativa (%)",
-                color="Categoria",
-                color_discrete_sequence=PALETTE,
-                labels={"Freq. Absoluta": "Frequência Absoluta"},
-                title=f"Distribuição – {title}",
-            )
-            fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-            fig_bar.update_layout(showlegend=False, height=420,
-                                  xaxis_title=title, yaxis_title="Frequência")
-            st.plotly_chart(fig_bar, use_container_width=True)
+    col_ins_bar, col_ins_tab = st.columns([2, 1])
+    with col_ins_bar:
+        fig_ins = px.bar(
+            uf_ins,
+            x="uf",
+            y="total_inscritos",
+            color="total_inscritos",
+            color_continuous_scale="Teal",
+            text_auto=True,
+            title="Total de Inscritos por Estado",
+            labels={"uf": "UF", "total_inscritos": "Inscritos"},
+        )
+        fig_ins.update_layout(height=420, showlegend=False,
+                               coloraxis_showscale=False,
+                               xaxis_title="UF", yaxis_title="Inscritos")
+        st.plotly_chart(fig_ins, use_container_width=True)
 
-        with tab_pie:
-            fig_pie = px.pie(
-                freq_df,
-                names="Categoria",
-                values="Freq. Absoluta",
-                color_discrete_sequence=PALETTE,
-                title=f"Distribuição – {title}",
-                hole=0.35,
-            )
-            fig_pie.update_traces(textinfo="percent+label")
-            fig_pie.update_layout(height=420)
-            st.plotly_chart(fig_pie, use_container_width=True)
+    with col_ins_tab:
+        st.markdown("**Tabela resumo**")
+        st.dataframe(
+            uf_ins.rename(columns={"uf": "UF", "municipios": "Municípios",
+                                    "total_inscritos": "Inscritos"}),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-        st.markdown("---")
+    st.markdown("---")
+
+    # ---- Seção 3: Composição Demográfica por UF ----
+    st.subheader("�� Composição Demográfica por UF")
+    st.markdown(
+        "Para cada estado, a média das proporções dos municípios "
+        "em cada grupo demográfico (sexo e raça/cor)."
+    )
+
+    demo_cols = {
+        "Sexo":     ["pct_feminino"],
+        "Raça/Cor": ["pct_branca", "pct_parda", "pct_preta", "pct_amarela", "pct_indigena"],
+        "Socioeconômico": ["pct_internet", "pct_computador", "pct_classe_media_alta"],
+    }
+
+    demo_choice = st.selectbox(
+        "Grupo demográfico",
+        list(demo_cols.keys()),
+        key="demo_group_sel",
+    )
+    chosen_cols = [c for c in demo_cols[demo_choice] if c in df.columns]
+
+    if chosen_cols:
+        uf_demo = (
+            df.groupby("uf")[chosen_cols].mean().round(2).reset_index()
+        )
+        uf_demo_melt = uf_demo.melt(id_vars="uf", var_name="Indicador", value_name="Proporção (%)")
+        uf_demo_melt["Indicador"] = uf_demo_melt["Indicador"].map(PROPORTION_LABELS)
+
+        fig_demo = px.bar(
+            uf_demo_melt,
+            x="uf",
+            y="Proporção (%)",
+            color="Indicador",
+            barmode="group",
+            color_discrete_sequence=PALETTE,
+            title=f"Média Municipal de {demo_choice} por UF",
+            labels={"uf": "UF"},
+        )
+        fig_demo.update_layout(height=460, xaxis_title="UF")
+        st.plotly_chart(fig_demo, use_container_width=True)
+    else:
+        st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
 
 
 # ===========================================================================
@@ -307,27 +390,30 @@ elif page == "📊 Variáveis Qualitativas":
 elif page == "📈 Variáveis Quantitativas":
     st.title("📈 Variáveis Quantitativas")
     st.markdown(
-        "Histogramas, box plots e estatísticas descritivas das notas do ENEM 2024."
+        "Histogramas, box plots e estatísticas descritivas das **médias municipais** "
+        "de notas do ENEM 2024. Cada observação representa um município."
     )
     st.markdown("---")
 
+    available_scores = [c for c in SCORE_COLS if c in df.columns]
+    available_props  = [c for c in PROPORTION_COLS if c in df.columns]
+
     # --- Estatísticas descritivas ---
-    st.subheader("Estatísticas Descritivas")
-    stats_df = descriptive_stats(df)
+    st.subheader("Estatísticas Descritivas das Médias Municipais")
+    stats_df = descriptive_stats(df, columns=available_scores)
     st.dataframe(stats_df, use_container_width=True)
     st.markdown("---")
 
-    # --- Histogramas ---
+    # ---- Histogramas ----
     st.subheader("Histogramas")
-    available_scores = [c for c in QUANTITATIVE_VARS if c in df.columns]
-    score_options = {score_label(c): c for c in available_scores}
 
+    all_quant_options = {score_label(c): c for c in available_scores + available_props}
     sel_score_label = st.selectbox(
-        "Selecione a área de conhecimento",
-        list(score_options.keys()),
+        "Selecione a variável",
+        list(all_quant_options.keys()),
         key="hist_select",
     )
-    sel_score_col = score_options[sel_score_label]
+    sel_score_col = all_quant_options[sel_score_label]
 
     col_hist, col_info = st.columns([3, 1])
 
@@ -337,19 +423,19 @@ elif page == "📈 Variáveis Quantitativas":
             hist_data,
             nbins=50,
             color_discrete_sequence=["#636EFA"],
-            labels={"value": "Nota", "count": "Frequência"},
-            title=f"Histograma – {sel_score_label}",
+            labels={"value": sel_score_label, "count": "Municípios"},
+            title=f"Histograma – {sel_score_label} (distribuição municipal)",
         )
-        # Linha de densidade (KDE)
-        mean_val = hist_data.mean()
+        mean_val   = hist_data.mean()
+        median_val = hist_data.median()
         fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red",
                            annotation_text=f"Média: {mean_val:.1f}",
                            annotation_position="top right")
-        median_val = hist_data.median()
         fig_hist.add_vline(x=median_val, line_dash="dot", line_color="green",
                            annotation_text=f"Mediana: {median_val:.1f}",
                            annotation_position="top left")
-        fig_hist.update_layout(height=420, xaxis_title="Nota", yaxis_title="Frequência")
+        fig_hist.update_layout(height=420, xaxis_title=sel_score_label,
+                                yaxis_title="Municípios")
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with col_info:
@@ -362,14 +448,13 @@ elif page == "📈 Variáveis Quantitativas":
         st.markdown(f"- Resultado: {resultado}")
 
         st.markdown("**Percentis**")
-        p_data = hist_data
         for pct in [10, 25, 50, 75, 90]:
-            st.markdown(f"- P{pct}: {np.percentile(p_data, pct):.1f}")
+            st.markdown(f"- P{pct}: {np.percentile(hist_data, pct):.1f}")
 
     st.markdown("---")
 
-    # --- Todos os histogramas lado a lado ---
-    st.subheader("Todos os Histogramas")
+    # ---- Todos os histogramas de notas lado a lado ----
+    st.subheader("Todos os Histogramas de Notas")
     cols = st.columns(len(available_scores))
     for i, score_col in enumerate(available_scores):
         with cols[i]:
@@ -379,73 +464,60 @@ elif page == "📈 Variáveis Quantitativas":
                 nbins=40,
                 title=score_label(score_col),
                 color_discrete_sequence=[PALETTE[i % len(PALETTE)]],
-                labels={"value": "Nota"},
+                labels={"value": "Média Municipal"},
             )
             fig_mini.update_layout(height=280, showlegend=False,
-                                   xaxis_title="Nota", yaxis_title="Freq.",
+                                   xaxis_title="Nota Média",
+                                   yaxis_title="Municípios",
                                    margin=dict(l=20, r=10, t=50, b=30))
             st.plotly_chart(fig_mini, use_container_width=True)
 
     st.markdown("---")
 
-    # --- Box plots ---
-    st.subheader("Box Plots das Notas")
+    # ---- Box Plot – todas as notas ----
+    st.subheader("Box Plots das Médias Municipais")
 
-    # Box plot geral (todas as notas)
-    melt_df = df[available_scores].melt(var_name="Área", value_name="Nota").dropna()
+    melt_df = df[available_scores].melt(var_name="Área", value_name="Nota Média").dropna()
     melt_df["Área"] = melt_df["Área"].map(SCORE_LABELS)
 
     fig_box = px.box(
         melt_df,
         x="Área",
-        y="Nota",
+        y="Nota Média",
         color="Área",
         color_discrete_sequence=PALETTE,
         points=False,
-        title="Box Plot – Todas as Notas",
+        title="Box Plot – Médias Municipais por Área de Conhecimento",
     )
     fig_box.update_layout(height=480, showlegend=False,
-                           xaxis_title="Área", yaxis_title="Nota")
+                          xaxis_title="Área", yaxis_title="Nota Média Municipal")
     st.plotly_chart(fig_box, use_container_width=True)
 
     st.markdown("---")
 
-    # --- Box plot por grupo ---
-    st.subheader("Box Plot por Grupo")
-    group_options = {
-        "Sexo": "SEXO_DESC",
-        "Tipo de Escola": "ESCOLA_DESC",
-        "Raça/Cor": "COR_RACA_DESC",
-        "Situação de Conclusão": "ST_CONCLUSAO_DESC",
-        "Treineiro": "TREINEIRO_DESC",
-    }
-    available_groups = {k: v for k, v in group_options.items() if v in df.columns}
+    # ---- Box plot por UF ----
+    st.subheader("Box Plot por UF")
+    score_opt_box = {score_label(c): c for c in available_scores}
+    sel_score_box_lbl = st.selectbox("Área de conhecimento", list(score_opt_box.keys()),
+                                      key="box_score_sel")
+    sel_score_box_col = score_opt_box[sel_score_box_lbl]
 
-    col_g1, col_g2 = st.columns(2)
-    sel_group_label = col_g1.selectbox("Agrupar por", list(available_groups.keys()))
-    sel_group_col   = available_groups[sel_group_label]
-    sel_score_box   = col_g2.selectbox(
-        "Nota", list(score_options.keys()), key="box_select"
-    )
-    sel_score_box_col = score_options[sel_score_box]
-
-    fig_box_grp = px.box(
-        df.dropna(subset=[sel_score_box_col, sel_group_col]),
-        x=sel_group_col,
+    fig_box_uf = px.box(
+        df.dropna(subset=[sel_score_box_col, "uf"]),
+        x="uf",
         y=sel_score_box_col,
-        color=sel_group_col,
+        color="uf",
         color_discrete_sequence=PALETTE,
         points=False,
-        title=f"{sel_score_box} por {sel_group_label}",
+        title=f"{sel_score_box_lbl} – distribuição municipal por UF",
     )
-    fig_box_grp.update_layout(height=480, showlegend=False,
-                               xaxis_title=sel_group_label,
-                               yaxis_title="Nota")
-    st.plotly_chart(fig_box_grp, use_container_width=True)
+    fig_box_uf.update_layout(height=500, showlegend=False,
+                              xaxis_title="UF",
+                              yaxis_title="Nota Média Municipal")
+    st.plotly_chart(fig_box_uf, use_container_width=True)
 
-    # Tabela de médias por grupo
-    with st.expander(f"📋 Tabela de médias – {sel_score_box} por {sel_group_label}"):
-        grp_table = mean_scores_by_group(df, sel_score_box_col, sel_group_col)
+    with st.expander(f"📋 Médias ponderadas de {sel_score_box_lbl} por UF"):
+        grp_table = mean_scores_by_group(df, sel_score_box_col, "uf")
         st.dataframe(grp_table, use_container_width=True, hide_index=True)
 
 
@@ -456,26 +528,33 @@ elif page == "📈 Variáveis Quantitativas":
 elif page == "🔗 Análise de Correlação":
     st.title("🔗 Análise de Correlação")
     st.markdown(
-        "Heatmap e scatter matrix da correlação entre as notas do ENEM 2024."
+        "Correlação entre as médias municipais de notas e os indicadores "
+        "socioeconômicos e demográficos."
     )
     st.markdown("---")
 
-    available_scores = [c for c in QUANTITATIVE_VARS if c in df.columns]
+    available_scores = [c for c in SCORE_COLS if c in df.columns]
+    available_props  = [c for c in PROPORTION_COLS if c in df.columns]
+    all_num_cols     = available_scores + available_props
 
-    # Escolha do método
+    # ---- Heatmap ----
+    st.subheader("Matriz de Correlação (Heatmap)")
+
     method = st.selectbox(
         "Método de correlação",
         ["pearson", "spearman", "kendall"],
         format_func=lambda m: m.capitalize(),
     )
 
-    corr_df = correlation_matrix(df, columns=available_scores, method=method)
+    col_left, col_right = st.columns([3, 1])
+    with col_right:
+        include_props = st.checkbox("Incluir proporções demográficas", value=True)
 
-    # --- Heatmap ---
-    st.subheader("Matriz de Correlação (Heatmap)")
+    corr_cols = available_scores + (available_props if include_props else [])
+    corr_df   = correlation_matrix(df, columns=corr_cols, method=method)
 
     corr_values = corr_df.values.tolist()
-    labels = corr_df.columns.tolist()
+    labels      = corr_df.columns.tolist()
 
     fig_heat = ff.create_annotated_heatmap(
         z=corr_values,
@@ -485,27 +564,27 @@ elif page == "🔗 Análise de Correlação":
         reversescale=True,
         zmin=-1,
         zmax=1,
-        annotation_text=[[f"{v:.3f}" for v in row] for row in corr_values],
+        annotation_text=[[f"{v:.2f}" for v in row] for row in corr_values],
         showscale=True,
     )
     fig_heat.update_layout(
-        height=520,
-        title=f"Correlação de {method.capitalize()} entre as notas",
+        height=max(500, len(labels) * 45),
+        title=f"Correlação de {method.capitalize()} entre notas e indicadores municipais",
         xaxis=dict(side="bottom"),
     )
-    st.plotly_chart(fig_heat, use_container_width=True)
+    with col_left:
+        st.plotly_chart(fig_heat, use_container_width=True)
 
-    # Tabela da matriz
     with st.expander("📋 Ver tabela da matriz de correlação"):
         st.dataframe(corr_df, use_container_width=True)
 
     st.markdown("---")
 
-    # --- Scatter matrix ---
-    st.subheader("Scatter Matrix (Pairplot)")
+    # ---- Scatter matrix de notas ----
+    st.subheader("Scatter Matrix das Notas")
     st.markdown(
-        "_Selecione as áreas que deseja incluir. "
-        "O gráfico pode demorar alguns segundos para renderizar._"
+        "_Distribuição par a par das médias municipais de notas. "
+        "Colorido por UF. Usa amostra de até 2000 municípios para performance._"
     )
 
     score_options_multi = {score_label(c): c for c in available_scores}
@@ -517,19 +596,8 @@ elif page == "🔗 Análise de Correlação":
 
     if len(sel_pair_labels) >= 2:
         sel_pair_cols = [score_options_multi[lbl] for lbl in sel_pair_labels]
-        color_by_options = {
-            "Sexo": "SEXO_DESC",
-            "Tipo de Escola": "ESCOLA_DESC",
-            "Raça/Cor": "COR_RACA_DESC",
-            "Nenhum": None,
-        }
-        available_color = {k: v for k, v in color_by_options.items()
-                           if v is None or v in df.columns}
-        color_choice = st.selectbox("Colorir por", list(available_color.keys()))
-        color_col = available_color[color_choice]
-
-        sample_df = df[sel_pair_cols + ([color_col] if color_col else [])].dropna().sample(
-            min(3000, len(df)), random_state=42
+        sample_df     = df[sel_pair_cols + ["uf"]].dropna().sample(
+            min(2000, len(df)), random_state=42
         )
         renamed = {c: score_label(c) for c in sel_pair_cols}
         sample_df = sample_df.rename(columns=renamed)
@@ -537,10 +605,10 @@ elif page == "🔗 Análise de Correlação":
         fig_scatter = px.scatter_matrix(
             sample_df,
             dimensions=list(renamed.values()),
-            color=color_col if color_col else None,
+            color="uf",
             color_discrete_sequence=PALETTE,
-            title="Scatter Matrix das Notas",
-            opacity=0.4,
+            title="Scatter Matrix das Médias Municipais de Notas (por UF)",
+            opacity=0.5,
         )
         fig_scatter.update_traces(marker=dict(size=3))
         fig_scatter.update_layout(height=700)
@@ -550,40 +618,76 @@ elif page == "🔗 Análise de Correlação":
 
     st.markdown("---")
 
-    # --- Correlação com variável de grupo ---
-    st.subheader("Correlação Média por Grupo")
-    group_options = {
-        "Sexo": "SEXO_DESC",
-        "Tipo de Escola": "ESCOLA_DESC",
-        "Raça/Cor": "COR_RACA_DESC",
-        "UF": "SG_UF_RESIDENCIA",
-    }
-    available_groups = {k: v for k, v in group_options.items() if v in df.columns}
-    sel_grp = st.selectbox("Variável de agrupamento", list(available_groups.keys()),
-                            key="corr_group")
-    sel_grp_col = available_groups[sel_grp]
-
-    score_label_sel = st.selectbox(
-        "Nota para comparar por grupo",
-        list(score_options_multi.keys()),
-        key="corr_score",
+    # ---- Scatter indicador × nota ----
+    st.subheader("Dispersão: Indicador Demográfico × Nota")
+    st.markdown(
+        "Visualize a relação entre um indicador socioeconômico/demográfico "
+        "e a média de uma área de conhecimento por município."
     )
-    score_col_sel = score_options_multi[score_label_sel]
 
-    grp_means = mean_scores_by_group(df, score_col_sel, sel_grp_col)
+    prop_options  = {PROPORTION_LABELS.get(c, c): c for c in available_props}
+    score_options = {score_label(c): c for c in available_scores}
+
+    if prop_options and score_options:
+        col_sc1, col_sc2 = st.columns(2)
+        sel_x_lbl = col_sc1.selectbox("Indicador (eixo X)", list(prop_options.keys()),
+                                       key="sc_x")
+        sel_y_lbl = col_sc2.selectbox("Nota (eixo Y)", list(score_options.keys()),
+                                       key="sc_y")
+        sel_x_col = prop_options[sel_x_lbl]
+        sel_y_col = score_options[sel_y_lbl]
+
+        scatter_df = df[[sel_x_col, sel_y_col, "uf", "municipio", "total_inscritos"]].dropna()
+        fig_sc = px.scatter(
+            scatter_df,
+            x=sel_x_col,
+            y=sel_y_col,
+            color="uf",
+            size="total_inscritos",
+            size_max=20,
+            hover_name="municipio",
+            hover_data={"uf": True, "total_inscritos": True},
+            color_discrete_sequence=PALETTE,
+            trendline="ols",
+            trendline_scope="overall",
+            trendline_color_override="black",
+            opacity=0.6,
+            title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
+            labels={sel_x_col: sel_x_lbl, sel_y_col: sel_y_lbl},
+        )
+        fig_sc.update_layout(height=520)
+        st.plotly_chart(fig_sc, use_container_width=True)
+
+        # Correlação pontual
+        corr_val = scatter_df[[sel_x_col, sel_y_col]].corr(method=method).iloc[0, 1]
+        st.markdown(
+            f"**Correlação de {method.capitalize()} entre "
+            f"_{sel_x_lbl}_ e _{sel_y_lbl}_: `{corr_val:.4f}`**"
+        )
+    else:
+        st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
+
+    st.markdown("---")
+
+    # ---- Médias ponderadas por UF ----
+    st.subheader("Médias Ponderadas por UF")
+    score_opt_grp = {score_label(c): c for c in available_scores}
+    sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="corr_uf_score")
+    sel_grp_col   = score_opt_grp[sel_grp_score]
+
+    grp_means = mean_scores_by_group(df, sel_grp_col, "uf")
 
     fig_grp = px.bar(
         grp_means,
         x="Categoria",
-        y="Média",
-        error_y=None,
-        color="Média",
+        y="Média Ponderada",
+        color="Média Ponderada",
         color_continuous_scale="Tealrose",
-        text="Média",
-        title=f"Média de {score_label_sel} por {sel_grp}",
+        text="Média Ponderada",
+        title=f"Média Ponderada de {sel_grp_score} por UF",
     )
     fig_grp.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-    fig_grp.update_layout(height=430, showlegend=False,
+    fig_grp.update_layout(height=450, showlegend=False,
                            coloraxis_showscale=False,
-                           xaxis_title=sel_grp, yaxis_title="Média")
+                           xaxis_title="UF", yaxis_title="Nota Média Ponderada")
     st.plotly_chart(fig_grp, use_container_width=True)
