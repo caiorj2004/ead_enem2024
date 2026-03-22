@@ -40,8 +40,10 @@ import pandas as pd
 
 _SQLITE_PATH = os.path.join(os.path.dirname(__file__), "enem2024.db")
 
-# Bump this name whenever the schema changes to force SQLite cache recreation
-_SQLITE_TABLE = "enem2024_municipal_v2"
+# Bump this name whenever the schema changes to force SQLite cache recreation.
+# v3: added raca_nao_declarado, est_civil_divorciado/viuvo/nao_informado,
+#     nationality subtypes, treineiro_nao, conclusao_* columns.
+_SQLITE_TABLE = "enem2024_municipal_v3"
 
 SYNTHETIC_MUNICIPALITIES = 500
 RNG_SEED = 42
@@ -59,15 +61,28 @@ SELECT
     -- [DADOS DO PARTICIPANTE]
     SUM(CASE WHEN tp_sexo = 'Feminino'   THEN 1 ELSE 0 END) AS sexo_feminino,
     SUM(CASE WHEN tp_sexo = 'Masculino'  THEN 1 ELSE 0 END) AS sexo_masculino,
-    SUM(CASE WHEN tp_cor_raca = 'Branca'   THEN 1 ELSE 0 END) AS raca_branca,
-    SUM(CASE WHEN tp_cor_raca = 'Preta'    THEN 1 ELSE 0 END) AS raca_preta,
-    SUM(CASE WHEN tp_cor_raca = 'Parda'    THEN 1 ELSE 0 END) AS raca_parda,
-    SUM(CASE WHEN tp_cor_raca = 'Amarela'  THEN 1 ELSE 0 END) AS raca_amarela,
-    SUM(CASE WHEN tp_cor_raca = 'Indígena' THEN 1 ELSE 0 END) AS raca_indigena,
-    SUM(CASE WHEN tp_estado_civil = 'Solteiro(a)'    THEN 1 ELSE 0 END) AS est_civil_solteiro,
-    SUM(CASE WHEN tp_estado_civil LIKE 'Casado%'     THEN 1 ELSE 0 END) AS est_civil_casado,
-    SUM(CASE WHEN tp_nacionalidade = 'Brasileiro(a)' THEN 1 ELSE 0 END) AS nacionalidade_brasileiro,
-    SUM(CASE WHEN in_treineiro = 'Sim'               THEN 1 ELSE 0 END) AS treineiro_sim,
+    SUM(CASE WHEN tp_cor_raca = 'Branca'        THEN 1 ELSE 0 END) AS raca_branca,
+    SUM(CASE WHEN tp_cor_raca = 'Preta'         THEN 1 ELSE 0 END) AS raca_preta,
+    SUM(CASE WHEN tp_cor_raca = 'Parda'         THEN 1 ELSE 0 END) AS raca_parda,
+    SUM(CASE WHEN tp_cor_raca = 'Amarela'       THEN 1 ELSE 0 END) AS raca_amarela,
+    SUM(CASE WHEN tp_cor_raca = 'Indígena'      THEN 1 ELSE 0 END) AS raca_indigena,
+    SUM(CASE WHEN tp_cor_raca = 'Não declarado' THEN 1 ELSE 0 END) AS raca_nao_declarado,
+    SUM(CASE WHEN tp_estado_civil = 'Solteiro(a)'              THEN 1 ELSE 0 END) AS est_civil_solteiro,
+    SUM(CASE WHEN tp_estado_civil LIKE 'Casado%'               THEN 1 ELSE 0 END) AS est_civil_casado,
+    SUM(CASE WHEN tp_estado_civil LIKE 'Divorciado%'           THEN 1 ELSE 0 END) AS est_civil_divorciado,
+    SUM(CASE WHEN tp_estado_civil = 'Viúvo(a)'                 THEN 1 ELSE 0 END) AS est_civil_viuvo,
+    SUM(CASE WHEN tp_estado_civil = 'Não informado'            THEN 1 ELSE 0 END) AS est_civil_nao_informado,
+    SUM(CASE WHEN tp_nacionalidade = 'Brasileiro(a)'                               THEN 1 ELSE 0 END) AS nacionalidade_brasileiro,
+    SUM(CASE WHEN tp_nacionalidade LIKE 'Brasileiro(a) Nato%'                      THEN 1 ELSE 0 END) AS nacionalidade_nato_exterior,
+    SUM(CASE WHEN tp_nacionalidade LIKE 'Brasileiro(a) Natural%'                   THEN 1 ELSE 0 END) AS nacionalidade_naturalizado,
+    SUM(CASE WHEN tp_nacionalidade = 'Estrangeiro(a)'                              THEN 1 ELSE 0 END) AS nacionalidade_estrangeiro,
+    SUM(CASE WHEN tp_nacionalidade = 'Não informado'                               THEN 1 ELSE 0 END) AS nacionalidade_nao_informado,
+    SUM(CASE WHEN in_treineiro = 'Sim' THEN 1 ELSE 0 END) AS treineiro_sim,
+    SUM(CASE WHEN in_treineiro = 'Não' THEN 1 ELSE 0 END) AS treineiro_nao,
+    SUM(CASE WHEN tp_st_conclusao = 'Já concluí o Ensino Médio'                                   THEN 1 ELSE 0 END) AS conclusao_ja_concluiu,
+    SUM(CASE WHEN tp_st_conclusao = 'Estou cursando e concluirei o Ensino Médio em 2024'           THEN 1 ELSE 0 END) AS conclusao_cursando_2024,
+    SUM(CASE WHEN tp_st_conclusao LIKE 'Estou cursando e concluirei o Ensino Médio após%'          THEN 1 ELSE 0 END) AS conclusao_cursando_apos,
+    SUM(CASE WHEN tp_st_conclusao LIKE 'Não concluí%'                                              THEN 1 ELSE 0 END) AS conclusao_nao_concluiu,
 
     -- [QUESTIONÁRIO - ESCOLARIDADE E OCUPAÇÃO]
     SUM(CASE WHEN q001 = 'Completou a Pós-graduação' THEN 1 ELSE 0 END) AS escolaridade_pai_pos,
@@ -174,19 +189,32 @@ def _create_synthetic_data(n: int = SYNTHETIC_MUNICIPALITIES) -> pd.DataFrame:
     pct_branca   = rng.uniform(0.15, 0.55, size=n)
     pct_preta    = rng.uniform(0.05, 0.20, size=n)
     pct_amarela  = rng.uniform(0.01, 0.08, size=n)
-    pct_indigena = np.clip(1 - pct_parda - pct_branca - pct_preta - pct_amarela, 0.01, 0.15)
+    pct_indigena = np.clip(1 - pct_parda - pct_branca - pct_preta - pct_amarela, 0.01, 0.10)
 
-    sexo_feminino           = _cnt(pct_fem)
-    sexo_masculino          = total - sexo_feminino
-    raca_parda              = _cnt(pct_parda)
-    raca_branca             = _cnt(pct_branca)
-    raca_preta              = _cnt(pct_preta)
-    raca_amarela            = _cnt(pct_amarela)
-    raca_indigena           = _cnt(pct_indigena)
-    est_civil_solteiro      = _cnt(rng.uniform(0.75, 0.92, size=n))
-    est_civil_casado        = _cnt(rng.uniform(0.02, 0.12, size=n))
-    nacionalidade_brasileiro = _cnt(rng.uniform(0.95, 1.00, size=n))
-    treineiro_sim           = _cnt(rng.uniform(0.05, 0.20, size=n))
+    sexo_feminino              = _cnt(pct_fem)
+    sexo_masculino             = total - sexo_feminino
+    raca_parda                 = _cnt(pct_parda)
+    raca_branca                = _cnt(pct_branca)
+    raca_preta                 = _cnt(pct_preta)
+    raca_amarela               = _cnt(pct_amarela)
+    raca_indigena              = _cnt(pct_indigena)
+    raca_nao_declarado         = _cnt(rng.uniform(0.01, 0.04, size=n))
+    est_civil_solteiro         = _cnt(rng.uniform(0.75, 0.92, size=n))
+    est_civil_casado           = _cnt(rng.uniform(0.02, 0.12, size=n))
+    est_civil_divorciado       = _cnt(rng.uniform(0.01, 0.04, size=n))
+    est_civil_viuvo            = _cnt(rng.uniform(0.00, 0.01, size=n))
+    est_civil_nao_informado    = _cnt(rng.uniform(0.01, 0.04, size=n))
+    nacionalidade_brasileiro   = _cnt(rng.uniform(0.93, 0.98, size=n))
+    nacionalidade_nato_exterior  = _cnt(rng.uniform(0.001, 0.005, size=n))
+    nacionalidade_naturalizado   = _cnt(rng.uniform(0.001, 0.01, size=n))
+    nacionalidade_estrangeiro    = _cnt(rng.uniform(0.001, 0.005, size=n))
+    nacionalidade_nao_informado  = _cnt(rng.uniform(0.000, 0.002, size=n))
+    treineiro_sim              = _cnt(rng.uniform(0.05, 0.20, size=n))
+    treineiro_nao              = total - treineiro_sim
+    conclusao_ja_concluiu      = _cnt(rng.uniform(0.35, 0.50, size=n))
+    conclusao_cursando_2024    = _cnt(rng.uniform(0.25, 0.40, size=n))
+    conclusao_cursando_apos    = _cnt(rng.uniform(0.15, 0.25, size=n))
+    conclusao_nao_concluiu     = _cnt(rng.uniform(0.005, 0.015, size=n))
 
     # ── Questionário: Escolaridade e Ocupação (Q001-Q004) ─────────────────
     escolaridade_pai_pos = _cnt(rng.uniform(0.02, 0.12, size=n))
@@ -238,62 +266,75 @@ def _create_synthetic_data(n: int = SYNTHETIC_MUNICIPALITIES) -> pd.DataFrame:
     ).round(2)
 
     return pd.DataFrame({
-        "cod_7":                    cod_7,
-        "municipio":                municipio,
-        "uf":                       ufs,
-        "total_inscritos":          total,
-        "media_idade":              media_idade,
+        "cod_7":                      cod_7,
+        "municipio":                  municipio,
+        "uf":                         ufs,
+        "total_inscritos":            total,
+        "media_idade":                media_idade,
         # Demografics
-        "sexo_feminino":            sexo_feminino,
-        "sexo_masculino":           sexo_masculino,
-        "raca_branca":              raca_branca,
-        "raca_preta":               raca_preta,
-        "raca_parda":               raca_parda,
-        "raca_amarela":             raca_amarela,
-        "raca_indigena":            raca_indigena,
-        "est_civil_solteiro":       est_civil_solteiro,
-        "est_civil_casado":         est_civil_casado,
-        "nacionalidade_brasileiro": nacionalidade_brasileiro,
-        "treineiro_sim":            treineiro_sim,
+        "sexo_feminino":              sexo_feminino,
+        "sexo_masculino":             sexo_masculino,
+        "raca_branca":                raca_branca,
+        "raca_preta":                 raca_preta,
+        "raca_parda":                 raca_parda,
+        "raca_amarela":               raca_amarela,
+        "raca_indigena":              raca_indigena,
+        "raca_nao_declarado":         raca_nao_declarado,
+        "est_civil_solteiro":         est_civil_solteiro,
+        "est_civil_casado":           est_civil_casado,
+        "est_civil_divorciado":       est_civil_divorciado,
+        "est_civil_viuvo":            est_civil_viuvo,
+        "est_civil_nao_informado":    est_civil_nao_informado,
+        "nacionalidade_brasileiro":   nacionalidade_brasileiro,
+        "nacionalidade_nato_exterior":  nacionalidade_nato_exterior,
+        "nacionalidade_naturalizado":   nacionalidade_naturalizado,
+        "nacionalidade_estrangeiro":    nacionalidade_estrangeiro,
+        "nacionalidade_nao_informado":  nacionalidade_nao_informado,
+        "treineiro_sim":              treineiro_sim,
+        "treineiro_nao":              treineiro_nao,
+        "conclusao_ja_concluiu":      conclusao_ja_concluiu,
+        "conclusao_cursando_2024":    conclusao_cursando_2024,
+        "conclusao_cursando_apos":    conclusao_cursando_apos,
+        "conclusao_nao_concluiu":     conclusao_nao_concluiu,
         # Q001-Q004 Escolaridade / Ocupação
-        "escolaridade_pai_pos":     escolaridade_pai_pos,
-        "escolaridade_mae_pos":     escolaridade_mae_pos,
-        "ocupacao_pai_grupo5":      ocupacao_pai_grupo5,
-        "ocupacao_mae_grupo5":      ocupacao_mae_grupo5,
+        "escolaridade_pai_pos":       escolaridade_pai_pos,
+        "escolaridade_mae_pos":       escolaridade_mae_pos,
+        "ocupacao_pai_grupo5":        ocupacao_pai_grupo5,
+        "ocupacao_mae_grupo5":        ocupacao_mae_grupo5,
         # Q006-Q007 Renda
-        "possui_renda_sim":         possui_renda_sim,
-        "renda_familiar_nenhuma":   renda_familiar_nenhuma,
-        "renda_familiar_classe_a":  renda_familiar_classe_a,
+        "possui_renda_sim":           possui_renda_sim,
+        "renda_familiar_nenhuma":     renda_familiar_nenhuma,
+        "renda_familiar_classe_a":    renda_familiar_classe_a,
         # Q008-Q022 Bens e Tecnologia
-        "empregado_domestico_sim":  empregado_domestico_sim,
-        "banheiro_1":               banheiro_1,
-        "banheiro_2":               banheiro_2,
-        "banheiro_3_ou_mais":       banheiro_3_ou_mais,
-        "quarto_3_ou_mais":         quarto_3_ou_mais,
-        "carro_1":                  carro_1,
-        "carro_2_ou_mais":          carro_2_ou_mais,
-        "motocicleta_sim":          motocicleta_sim,
-        "geladeira_sim":            geladeira_sim,
-        "freezer_sim":              freezer_sim,
-        "maquina_lavar_sim":        maquina_lavar_sim,
-        "micro_ondas_sim":          micro_ondas_sim,
-        "aspirador_po_sim":         aspirador_po_sim,
-        "tv_sim":                   tv_sim,
-        "tv_assinatura_sim":        tv_assinatura_sim,
-        "internet_wifi_sim":        internet_wifi_sim,
-        "computador_1":             computador_1,
-        "computador_2_ou_mais":     computador_2_ou_mais,
-        "celular_3_ou_mais":        celular_3_ou_mais,
+        "empregado_domestico_sim":    empregado_domestico_sim,
+        "banheiro_1":                 banheiro_1,
+        "banheiro_2":                 banheiro_2,
+        "banheiro_3_ou_mais":         banheiro_3_ou_mais,
+        "quarto_3_ou_mais":           quarto_3_ou_mais,
+        "carro_1":                    carro_1,
+        "carro_2_ou_mais":            carro_2_ou_mais,
+        "motocicleta_sim":            motocicleta_sim,
+        "geladeira_sim":              geladeira_sim,
+        "freezer_sim":                freezer_sim,
+        "maquina_lavar_sim":          maquina_lavar_sim,
+        "micro_ondas_sim":            micro_ondas_sim,
+        "aspirador_po_sim":           aspirador_po_sim,
+        "tv_sim":                     tv_sim,
+        "tv_assinatura_sim":          tv_assinatura_sim,
+        "internet_wifi_sim":          internet_wifi_sim,
+        "computador_1":               computador_1,
+        "computador_2_ou_mais":       computador_2_ou_mais,
+        "celular_3_ou_mais":          celular_3_ou_mais,
         # Q023 Escola
-        "tipo_escola_publica":      tipo_escola_publica,
-        "tipo_escola_privada":      tipo_escola_privada,
+        "tipo_escola_publica":        tipo_escola_publica,
+        "tipo_escola_privada":        tipo_escola_privada,
         # Notas (renamed to nota_*)
-        "nota_ciencias_natureza":   nota_ciencias_natureza,
-        "nota_ciencias_humanas":    nota_ciencias_humanas,
-        "nota_linguagens":          nota_linguagens,
-        "nota_matematica":          nota_matematica,
-        "nota_redacao":             nota_redacao,
-        "nota_geral_media":         nota_geral_media,
+        "nota_ciencias_natureza":     nota_ciencias_natureza,
+        "nota_ciencias_humanas":      nota_ciencias_humanas,
+        "nota_linguagens":            nota_linguagens,
+        "nota_matematica":            nota_matematica,
+        "nota_redacao":               nota_redacao,
+        "nota_geral_media":           nota_geral_media,
     })
 
 
@@ -388,16 +429,17 @@ def load_data(db_config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, bo
     """
     Carrega os dados do ENEM 2024 agregados ao nível municipal.
 
-    Tenta, em ordem:
-      1. Conectar ao PostgreSQL via `db_config` e executar o pipeline de 3 queries.
-      2. Usar banco SQLite local com dados sintéticos municipais (modo template).
+    Quando `db_config` é fornecido, conecta ao PostgreSQL e executa o pipeline
+    de 3 queries. Erros de conexão são propagados (não há fallback silencioso).
+
+    Quando `db_config` é None, usa banco SQLite local com dados sintéticos
+    municipais (modo demonstração).
 
     Parameters
     ----------
     db_config : dict | None
         Credenciais do banco real (lidas de st.secrets em app.py).
         Chaves esperadas: ``host``, ``port``, ``dbname``, ``user``, ``password``.
-        Se ``None`` ou se a conexão falhar, usa o modo template.
 
     Returns
     -------
@@ -405,11 +447,7 @@ def load_data(db_config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, bo
     is_demo  : bool – True quando os dados são sintéticos (modo template).
     """
     if db_config:
-        try:
-            import psycopg2  # type: ignore[import-untyped]
-            df = _pg_load(db_config)
-            return df, False
-        except (ImportError, psycopg2.Error, ValueError):
-            pass
+        df = _pg_load(db_config)
+        return df, False
 
     return _sqlite_load(), True

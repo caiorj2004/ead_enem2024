@@ -20,6 +20,7 @@ import plotly.figure_factory as ff
 import streamlit as st
 
 from analysis import (
+    HEATMAP_COLS,
     PROPORTION_COLS,
     PROPORTION_GROUPS,
     PROPORTION_LABELS,
@@ -227,20 +228,6 @@ if page == "🏠 Visão Geral":
                                      coloraxis_showscale=False,
                                      xaxis_title="Área", yaxis_title="Média")
             st.plotly_chart(fig_medias, use_container_width=True)
-
-    # --- Distribuição do tamanho dos municípios ---
-    st.subheader("Distribuição do Total de Inscritos por Município (escala log)")
-    fig_hist_ins = px.histogram(
-        df,
-        x="total_inscritos",
-        nbins=60,
-        log_x=True,
-        color_discrete_sequence=["#636EFA"],
-        labels={"total_inscritos": "Total de Inscritos"},
-    )
-    fig_hist_ins.update_layout(height=360, xaxis_title="Total de Inscritos (log)",
-                                yaxis_title="Número de Municípios")
-    st.plotly_chart(fig_hist_ins, use_container_width=True)
 
     # --- Prévia dos dados ---
     with st.expander("📋 Prévia dos dados municipais (primeiras 200 linhas)"):
@@ -524,11 +511,9 @@ elif page == "🔗 Análise de Correlação":
     )
 
     col_left, col_right = st.columns([3, 1])
-    with col_right:
-        include_props = st.checkbox("Incluir proporções demográficas", value=True)
 
-    corr_cols = available_scores + (available_props if include_props else [])
-    corr_df   = correlation_matrix(df, columns=corr_cols, method=method)
+    heatmap_cols = [c for c in HEATMAP_COLS if c in df.columns]
+    corr_df      = correlation_matrix(df, columns=heatmap_cols, method=method)
 
     corr_values = corr_df.values.tolist()
     labels      = corr_df.columns.tolist()
@@ -561,7 +546,7 @@ elif page == "🔗 Análise de Correlação":
     st.subheader("Scatter Matrix das Notas")
     st.markdown(
         "_Distribuição par a par das médias municipais de notas. "
-        "Colorido por UF. Usa amostra de até 2000 municípios para performance._"
+        "Colorida por UF. Usa amostra de até 2000 municípios para performance._"
     )
 
     score_options_multi = {score_label(c): c for c in available_scores}
@@ -620,18 +605,17 @@ elif page == "🔗 Análise de Correlação":
         sel_x_col = prop_options[sel_x_lbl]
         sel_y_col = score_options[sel_y_lbl]
 
-        scatter_df = df[[sel_x_col, sel_y_col, "uf", "municipio", "total_inscritos"]].dropna()
+        scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna()
         fig_sc = px.scatter(
             scatter_df,
             x=sel_x_col,
             y=sel_y_col,
-            color="uf",
             size="total_inscritos",
             size_max=20,
             hover_name="municipio",
-            hover_data={"uf": True, "total_inscritos": True},
-            color_discrete_sequence=PALETTE,
-            opacity=0.6,
+            hover_data={"total_inscritos": True},
+            color_discrete_sequence=["#636EFA"],
+            opacity=0.5,
             title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
             labels={sel_x_col: sel_x_lbl, sel_y_col: sel_y_lbl},
         )

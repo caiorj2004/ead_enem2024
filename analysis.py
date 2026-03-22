@@ -90,17 +90,34 @@ SCORE_LABELS: dict[str, str] = {
 
 # Mapeamento: coluna_pct → coluna_contagem_origem
 PROPORTION_MAP: dict[str, str] = {
-    # Demografics
+    # Demografics – Sexo
     "pct_feminino":              "sexo_feminino",
+    "pct_masculino":             "sexo_masculino",
+    # Demografics – Raça/Cor
     "pct_branca":                "raca_branca",
     "pct_preta":                 "raca_preta",
     "pct_parda":                 "raca_parda",
     "pct_amarela":               "raca_amarela",
     "pct_indigena":              "raca_indigena",
+    "pct_raca_nao_declarado":    "raca_nao_declarado",
+    # Demografics – Estado Civil
     "pct_solteiro":              "est_civil_solteiro",
     "pct_casado":                "est_civil_casado",
+    "pct_divorciado":            "est_civil_divorciado",
+    "pct_viuvo":                 "est_civil_viuvo",
+    "pct_est_civil_nao_info":    "est_civil_nao_informado",
+    # Demografics – Perfil / Treineiro / Conclusão
     "pct_brasileiro":            "nacionalidade_brasileiro",
+    "pct_nato_exterior":         "nacionalidade_nato_exterior",
+    "pct_naturalizado":          "nacionalidade_naturalizado",
+    "pct_estrangeiro":           "nacionalidade_estrangeiro",
+    "pct_nac_nao_informado":     "nacionalidade_nao_informado",
     "pct_treineiro":             "treineiro_sim",
+    "pct_nao_treineiro":         "treineiro_nao",
+    "pct_conclusao_concluiu":    "conclusao_ja_concluiu",
+    "pct_conclusao_em_2024":     "conclusao_cursando_2024",
+    "pct_conclusao_apos_2024":   "conclusao_cursando_apos",
+    "pct_conclusao_nao_concluiu": "conclusao_nao_concluiu",
     # Q001-Q004 Escolaridade e Ocupação
     "pct_escolaridade_pai_pos":  "escolaridade_pai_pos",
     "pct_escolaridade_mae_pos":  "escolaridade_mae_pos",
@@ -136,17 +153,34 @@ PROPORTION_MAP: dict[str, str] = {
 }
 
 PROPORTION_LABELS: dict[str, str] = {
-    # Demografics
+    # Sexo
     "pct_feminino":              "% Feminino",
+    "pct_masculino":             "% Masculino",
+    # Raça/Cor
     "pct_branca":                "% Branca",
     "pct_preta":                 "% Preta",
     "pct_parda":                 "% Parda",
     "pct_amarela":               "% Amarela",
     "pct_indigena":              "% Indígena",
+    "pct_raca_nao_declarado":    "% Não declarado",
+    # Estado Civil
     "pct_solteiro":              "% Solteiro(a)",
-    "pct_casado":                "% Casado(a)",
+    "pct_casado":                "% Casado(a)/Companheiro(a)",
+    "pct_divorciado":            "% Divorciado(a)/Separado(a)",
+    "pct_viuvo":                 "% Viúvo(a)",
+    "pct_est_civil_nao_info":    "% Est. Civil Não informado",
+    # Perfil / Treineiro / Conclusão
     "pct_brasileiro":            "% Brasileiro(a)",
+    "pct_nato_exterior":         "% Brasileiro(a) Nato – exterior",
+    "pct_naturalizado":          "% Naturalizado(a)",
+    "pct_estrangeiro":           "% Estrangeiro(a)",
+    "pct_nac_nao_informado":     "% Nac. Não informado",
     "pct_treineiro":             "% Treineiro",
+    "pct_nao_treineiro":         "% Não Treineiro",
+    "pct_conclusao_concluiu":    "% Já concluiu EM",
+    "pct_conclusao_em_2024":     "% Cursando – conclui em 2024",
+    "pct_conclusao_apos_2024":   "% Cursando – conclui após 2024",
+    "pct_conclusao_nao_concluiu": "% Não concluiu EM",
     # Q001-Q004 Escolaridade e Ocupação
     "pct_escolaridade_pai_pos":  "% Pai Pós-graduado",
     "pct_escolaridade_mae_pos":  "% Mãe Pós-graduada",
@@ -186,16 +220,26 @@ PROPORTION_COLS: list[str] = list(PROPORTION_MAP.keys())
 # Group keys for UI organisation (used in app.py demographic selector)
 PROPORTION_GROUPS: dict[str, list[str]] = {
     "Sexo": [
-        "pct_feminino",
+        "pct_feminino", "pct_masculino",
     ],
     "Raça/Cor": [
-        "pct_branca", "pct_parda", "pct_preta", "pct_amarela", "pct_indigena",
+        "pct_branca", "pct_parda", "pct_preta", "pct_amarela",
+        "pct_indigena", "pct_raca_nao_declarado",
     ],
     "Estado Civil": [
-        "pct_solteiro", "pct_casado",
+        "pct_solteiro", "pct_casado", "pct_divorciado",
+        "pct_viuvo", "pct_est_civil_nao_info",
     ],
     "Perfil": [
-        "pct_brasileiro", "pct_treineiro",
+        "pct_brasileiro", "pct_nato_exterior", "pct_naturalizado",
+        "pct_estrangeiro", "pct_nac_nao_informado",
+    ],
+    "Treineiro": [
+        "pct_treineiro", "pct_nao_treineiro",
+    ],
+    "Situação de Conclusão (Ensino Médio)": [
+        "pct_conclusao_concluiu", "pct_conclusao_em_2024",
+        "pct_conclusao_apos_2024", "pct_conclusao_nao_concluiu",
     ],
     "Escolaridade dos Pais": [
         "pct_escolaridade_pai_pos", "pct_escolaridade_mae_pos",
@@ -224,6 +268,15 @@ PROPORTION_GROUPS: dict[str, list[str]] = {
         "pct_escola_publica", "pct_escola_privada",
     ],
 }
+
+# Columns shown in the heatmap (scores + sexo + raça/cor + escola)
+HEATMAP_COLS: list[str] = [
+    *SCORE_COLS,
+    "pct_feminino", "pct_masculino",
+    "pct_branca", "pct_parda", "pct_preta", "pct_amarela",
+    "pct_indigena", "pct_raca_nao_declarado",
+    "pct_escola_publica", "pct_escola_privada",
+]
 
 
 # ---------------------------------------------------------------------------
