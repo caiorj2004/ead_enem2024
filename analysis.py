@@ -185,15 +185,22 @@ PROPORTION_COLS: list[str] = list(PROPORTION_MAP.keys())
 
 # Group keys for UI organisation (used in app.py demographic selector)
 PROPORTION_GROUPS: dict[str, list[str]] = {
-    "Sexo e Raça/Cor": [
-        "pct_feminino", "pct_branca", "pct_parda", "pct_preta",
-        "pct_amarela", "pct_indigena",
+    "Sexo": [
+        "pct_feminino",
     ],
-    "Estado Civil e Perfil": [
-        "pct_solteiro", "pct_casado", "pct_brasileiro", "pct_treineiro",
+    "Raça/Cor": [
+        "pct_branca", "pct_parda", "pct_preta", "pct_amarela", "pct_indigena",
     ],
-    "Escolaridade e Ocupação (Pais)": [
+    "Estado Civil": [
+        "pct_solteiro", "pct_casado",
+    ],
+    "Perfil": [
+        "pct_brasileiro", "pct_treineiro",
+    ],
+    "Escolaridade dos Pais": [
         "pct_escolaridade_pai_pos", "pct_escolaridade_mae_pos",
+    ],
+    "Ocupação dos Pais": [
         "pct_ocupacao_pai_grupo5", "pct_ocupacao_mae_grupo5",
     ],
     "Renda Familiar": [
@@ -317,7 +324,6 @@ def descriptive_stats(df: pd.DataFrame, columns: list[str] | None = None) -> pd.
 
     subset = df[columns]
     stats  = subset.describe().rename(index={
-        "count": "N (municípios)",
         "mean":  "Média",
         "std":   "Desvio Padrão",
         "min":   "Mínimo",
@@ -325,7 +331,7 @@ def descriptive_stats(df: pd.DataFrame, columns: list[str] | None = None) -> pd.
         "50%":   "Mediana",
         "75%":   "Q3 (75%)",
         "max":   "Máximo",
-    })
+    }).drop(index="count", errors="ignore")
     stats.loc["Assimetria (Skew)"] = subset.skew().round(4)
     stats.loc["Curtose"]           = subset.kurtosis().round(4)
     stats.loc["CV (%)"]            = (subset.std() / subset.mean() * 100).round(2)

@@ -132,20 +132,6 @@ if df.empty:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# Banner de modo template
-# ---------------------------------------------------------------------------
-
-if _is_demo:
-    st.info(
-        "⚙️ **Modo template ativo** – os dados exibidos são **sintéticos** e servem "
-        "apenas para demonstração da estrutura do dashboard. "
-        "Para conectar ao banco de dados real, configure as credenciais em "
-        "*Streamlit Cloud → Settings → Secrets* seguindo o modelo em "
-        "`.streamlit/secrets.toml`.",
-        icon="🔧",
-    )
-
-# ---------------------------------------------------------------------------
 # Paleta de cores padrão
 # ---------------------------------------------------------------------------
 
@@ -277,8 +263,8 @@ elif page == "📊 Variáveis Qualitativas":
     st.subheader("🔹 Distribuição de Municípios por UF")
 
     freq_df = frequency_table(df, "uf")
-    tab_table, tab_bar, tab_pie = st.tabs(
-        ["Tabela de Frequência", "Gráfico de Barras", "Gráfico de Pizza"]
+    tab_table, tab_bar = st.tabs(
+        ["Tabela de Frequência", "Gráfico de Barras"]
     )
 
     with tab_table:
@@ -300,19 +286,6 @@ elif page == "📊 Variáveis Qualitativas":
         fig_bar.update_layout(showlegend=False, height=440,
                                xaxis_title="UF", yaxis_title="Municípios")
         st.plotly_chart(fig_bar, use_container_width=True)
-
-    with tab_pie:
-        fig_pie = px.pie(
-            freq_df,
-            names="Categoria",
-            values="Freq. Absoluta",
-            color_discrete_sequence=PALETTE,
-            title="Proporção de Municípios por UF",
-            hole=0.35,
-        )
-        fig_pie.update_traces(textinfo="percent+label")
-        fig_pie.update_layout(height=460)
-        st.plotly_chart(fig_pie, use_container_width=True)
 
     st.markdown("---")
 
@@ -617,6 +590,12 @@ elif page == "🔗 Análise de Correlação":
         fig_scatter.update_traces(marker=dict(size=3))
         fig_scatter.update_layout(height=700)
         st.plotly_chart(fig_scatter, use_container_width=True)
+
+        # Correlation table for selected variables
+        pair_corr = df[sel_pair_cols].corr(method=method).round(4)
+        pair_corr = pair_corr.rename(index=renamed, columns=renamed)
+        with st.expander("📋 Tabela de Correlação entre as variáveis selecionadas"):
+            st.dataframe(pair_corr, use_container_width=True)
     else:
         st.info("Selecione pelo menos 2 áreas de conhecimento para exibir o gráfico.")
 
@@ -652,12 +631,19 @@ elif page == "🔗 Análise de Correlação":
             hover_name="municipio",
             hover_data={"uf": True, "total_inscritos": True},
             color_discrete_sequence=PALETTE,
-            trendline="ols",
-            trendline_scope="overall",
-            trendline_color_override="black",
             opacity=0.6,
             title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
             labels={sel_x_col: sel_x_lbl, sel_y_col: sel_y_lbl},
+        )
+        # Add OLS trend line without requiring statsmodels
+        x_vals  = scatter_df[sel_x_col].values
+        y_vals  = scatter_df[sel_y_col].values
+        poly_coef = np.polyfit(x_vals, y_vals, 1)
+        x_range   = np.linspace(x_vals.min(), x_vals.max(), 200)
+        fig_sc.add_scatter(
+            x=x_range, y=np.polyval(poly_coef, x_range),
+            mode="lines", line=dict(color="black", width=2, dash="dash"),
+            name="Tendência (OLS)", showlegend=False,
         )
         fig_sc.update_layout(height=520)
         st.plotly_chart(fig_sc, use_container_width=True)
