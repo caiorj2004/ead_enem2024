@@ -60,23 +60,73 @@ SELECT
     SUM(CASE WHEN tp_st_conclusao LIKE 'Estou cursando e concluirei o Ensino Médio após%'          THEN 1 ELSE 0 END) AS conclusao_cursando_apos,
     SUM(CASE WHEN tp_st_conclusao LIKE 'Não concluí%'                                              THEN 1 ELSE 0 END) AS conclusao_nao_concluiu,
 
-    -- [QUESTIONÁRIO - ESCOLARIDADE E OCUPAÇÃO]
-    SUM(CASE WHEN q001 = 'Completou a Pós-graduação' THEN 1 ELSE 0 END) AS escolaridade_pai_pos,
-    SUM(CASE WHEN q002 = 'Completou a Pós-graduação' THEN 1 ELSE 0 END) AS escolaridade_mae_pos,
-    SUM(CASE WHEN q003 LIKE 'Grupo 5%'               THEN 1 ELSE 0 END) AS ocupacao_pai_grupo5,
-    SUM(CASE WHEN q004 LIKE 'Grupo 5%'               THEN 1 ELSE 0 END) AS ocupacao_mae_grupo5,
+    -- [QUESTIONÁRIO - ESCOLARIDADE DO PAI (Q001)]
+    SUM(CASE WHEN q001 = 'Nunca estudou'                                                                          THEN 1 ELSE 0 END) AS escolaridade_pai_nunca,
+    SUM(CASE WHEN q001 = 'Não completou a 4ª série/5º ano do ensino fundamental'                                  THEN 1 ELSE 0 END) AS escolaridade_pai_fund1_inc,
+    SUM(CASE WHEN q001 = 'Completou a 4ª série/5º ano, mas não completou a 8ª série/9º ano do ensino fundamental' THEN 1 ELSE 0 END) AS escolaridade_pai_fund1,
+    SUM(CASE WHEN q001 = 'Completou a 8ª série/9º ano do ensino fundamental, mas não completou o Ensino Médio'    THEN 1 ELSE 0 END) AS escolaridade_pai_fund2,
+    SUM(CASE WHEN q001 = 'Completou o Ensino Médio, mas não completou a Faculdade'                                THEN 1 ELSE 0 END) AS escolaridade_pai_medio,
+    SUM(CASE WHEN q001 = 'Completou a Faculdade, mas não completou a Pós-graduação'                               THEN 1 ELSE 0 END) AS escolaridade_pai_superior,
+    SUM(CASE WHEN q001 = 'Completou a Pós-graduação'                                                              THEN 1 ELSE 0 END) AS escolaridade_pai_pos,
+    SUM(CASE WHEN q001 = 'Não sei'                                                                                THEN 1 ELSE 0 END) AS escolaridade_pai_nao_sei,
+
+    -- [QUESTIONÁRIO - ESCOLARIDADE DA MÃE (Q002)]
+    SUM(CASE WHEN q002 = 'Nunca estudou'                                                                          THEN 1 ELSE 0 END) AS escolaridade_mae_nunca,
+    SUM(CASE WHEN q002 = 'Não completou a 4ª série/5º ano do ensino fundamental'                                  THEN 1 ELSE 0 END) AS escolaridade_mae_fund1_inc,
+    SUM(CASE WHEN q002 = 'Completou a 4ª série/5º ano, mas não completou a 8ª série/9º ano do ensino fundamental' THEN 1 ELSE 0 END) AS escolaridade_mae_fund1,
+    SUM(CASE WHEN q002 = 'Completou a 8ª série/9º ano do ensino fundamental, mas não completou o Ensino Médio'    THEN 1 ELSE 0 END) AS escolaridade_mae_fund2,
+    SUM(CASE WHEN q002 = 'Completou o Ensino Médio, mas não completou a Faculdade'                                THEN 1 ELSE 0 END) AS escolaridade_mae_medio,
+    SUM(CASE WHEN q002 = 'Completou a Faculdade, mas não completou a Pós-graduação'                               THEN 1 ELSE 0 END) AS escolaridade_mae_superior,
+    SUM(CASE WHEN q002 = 'Completou a Pós-graduação'                                                              THEN 1 ELSE 0 END) AS escolaridade_mae_pos,
+    SUM(CASE WHEN q002 = 'Não sei'                                                                                THEN 1 ELSE 0 END) AS escolaridade_mae_nao_sei,
+
+    -- [QUESTIONÁRIO - OCUPAÇÃO DO PAI (Q003)]
+    SUM(CASE WHEN q003 LIKE 'Grupo 1%' THEN 1 ELSE 0 END) AS ocupacao_pai_grupo1,
+    SUM(CASE WHEN q003 LIKE 'Grupo 2%' THEN 1 ELSE 0 END) AS ocupacao_pai_grupo2,
+    SUM(CASE WHEN q003 LIKE 'Grupo 3%' THEN 1 ELSE 0 END) AS ocupacao_pai_grupo3,
+    SUM(CASE WHEN q003 LIKE 'Grupo 4%' THEN 1 ELSE 0 END) AS ocupacao_pai_grupo4,
+    SUM(CASE WHEN q003 LIKE 'Grupo 5%' THEN 1 ELSE 0 END) AS ocupacao_pai_grupo5,
+    SUM(CASE WHEN q003 LIKE 'Não sei%' THEN 1 ELSE 0 END) AS ocupacao_pai_nao_sei,
+
+    -- [QUESTIONÁRIO - OCUPAÇÃO DA MÃE (Q004)]
+    SUM(CASE WHEN q004 LIKE 'Grupo 1%' THEN 1 ELSE 0 END) AS ocupacao_mae_grupo1,
+    SUM(CASE WHEN q004 LIKE 'Grupo 2%' THEN 1 ELSE 0 END) AS ocupacao_mae_grupo2,
+    SUM(CASE WHEN q004 LIKE 'Grupo 3%' THEN 1 ELSE 0 END) AS ocupacao_mae_grupo3,
+    SUM(CASE WHEN q004 LIKE 'Grupo 4%' THEN 1 ELSE 0 END) AS ocupacao_mae_grupo4,
+    SUM(CASE WHEN q004 LIKE 'Grupo 5%' THEN 1 ELSE 0 END) AS ocupacao_mae_grupo5,
+    SUM(CASE WHEN q004 LIKE 'Não sei%' THEN 1 ELSE 0 END) AS ocupacao_mae_nao_sei,
 
     -- [QUESTIONÁRIO - RENDA]
-    SUM(CASE WHEN q006 = 'Sim'                         THEN 1 ELSE 0 END) AS possui_renda_sim,
-    SUM(CASE WHEN q007 = 'Nenhuma renda'               THEN 1 ELSE 0 END) AS renda_familiar_nenhuma,
-    SUM(CASE WHEN q007 = 'Acima de R$ 28.240,00'       THEN 1 ELSE 0 END) AS renda_familiar_classe_a,
+    SUM(CASE WHEN q006 = 'Sim'                                   THEN 1 ELSE 0 END) AS possui_renda_sim,
+    SUM(CASE WHEN q007 = 'Nenhuma renda'                         THEN 1 ELSE 0 END) AS renda_familiar_nenhuma,
+    SUM(CASE WHEN q007 = 'Até R$ 1.412,00'                       THEN 1 ELSE 0 END) AS renda_familiar_ate_1412,
+    SUM(CASE WHEN q007 = 'De R$ 1.412,01 até R$ 2.118,00'        THEN 1 ELSE 0 END) AS renda_familiar_1412_2118,
+    SUM(CASE WHEN q007 = 'De R$ 2.118,01 até R$ 2.824,00'        THEN 1 ELSE 0 END) AS renda_familiar_2118_2824,
+    SUM(CASE WHEN q007 = 'De R$ 2.824,01 até R$ 3.530,00'        THEN 1 ELSE 0 END) AS renda_familiar_2824_3530,
+    SUM(CASE WHEN q007 = 'De R$ 3.530,01 até R$ 4.236,00'        THEN 1 ELSE 0 END) AS renda_familiar_3530_4236,
+    SUM(CASE WHEN q007 = 'De R$ 4.236,01 até R$ 5.648,00'        THEN 1 ELSE 0 END) AS renda_familiar_4236_5648,
+    SUM(CASE WHEN q007 = 'De R$ 5.648,01 até R$ 7.060,00'        THEN 1 ELSE 0 END) AS renda_familiar_5648_7060,
+    SUM(CASE WHEN q007 = 'De R$ 7.060,01 até R$ 8.472,00'        THEN 1 ELSE 0 END) AS renda_familiar_7060_8472,
+    SUM(CASE WHEN q007 = 'De R$ 8.472,01 até R$ 9.884,00'        THEN 1 ELSE 0 END) AS renda_familiar_8472_9884,
+    SUM(CASE WHEN q007 = 'De R$ 9.884,01 até R$ 11.296,00'       THEN 1 ELSE 0 END) AS renda_familiar_9884_11296,
+    SUM(CASE WHEN q007 = 'De R$ 11.296,01 até R$ 12.708,00'      THEN 1 ELSE 0 END) AS renda_familiar_11296_12708,
+    SUM(CASE WHEN q007 = 'De R$ 12.708,01 até R$ 14.120,00'      THEN 1 ELSE 0 END) AS renda_familiar_12708_14120,
+    SUM(CASE WHEN q007 = 'De R$ 14.120,01 até R$ 16.944,00'      THEN 1 ELSE 0 END) AS renda_familiar_14120_16944,
+    SUM(CASE WHEN q007 = 'De R$ 16.944,01 até R$ 21.180,00'      THEN 1 ELSE 0 END) AS renda_familiar_16944_21180,
+    SUM(CASE WHEN q007 = 'De R$ 21.180,01 até R$ 28.240,00'      THEN 1 ELSE 0 END) AS renda_familiar_21180_28240,
+    SUM(CASE WHEN q007 = 'Acima de R$ 28.240,00'                 THEN 1 ELSE 0 END) AS renda_familiar_classe_a,
 
     -- [QUESTIONÁRIO - BENS E TECNOLOGIA]
     SUM(CASE WHEN q008 LIKE 'Sim%'                                             THEN 1 ELSE 0 END) AS empregado_domestico_sim,
-    SUM(CASE WHEN q009 LIKE 'Sim, um'                                          THEN 1 ELSE 0 END) AS banheiro_1,
-    SUM(CASE WHEN q009 LIKE 'Sim, dois'                                        THEN 1 ELSE 0 END) AS banheiro_2,
-    SUM(CASE WHEN q009 LIKE 'Sim, três%'                                       THEN 1 ELSE 0 END) AS banheiro_3_ou_mais,
-    SUM(CASE WHEN q010 LIKE 'Sim, três%'                                       THEN 1 ELSE 0 END) AS quarto_3_ou_mais,
+    SUM(CASE WHEN q009 = 'Não'           THEN 1 ELSE 0 END) AS banheiro_nao,
+    SUM(CASE WHEN q009 LIKE 'Sim, um'    THEN 1 ELSE 0 END) AS banheiro_1,
+    SUM(CASE WHEN q009 LIKE 'Sim, dois'  THEN 1 ELSE 0 END) AS banheiro_2,
+    SUM(CASE WHEN q009 LIKE 'Sim, três%' THEN 1 ELSE 0 END) AS banheiro_3_ou_mais,
+    SUM(CASE WHEN q010 = 'Não'           THEN 1 ELSE 0 END) AS quarto_nao,
+    SUM(CASE WHEN q010 LIKE 'Sim, um'    THEN 1 ELSE 0 END) AS quarto_1,
+    SUM(CASE WHEN q010 LIKE 'Sim, dois'  THEN 1 ELSE 0 END) AS quarto_2,
+    SUM(CASE WHEN q010 LIKE 'Sim, três%' THEN 1 ELSE 0 END) AS quarto_3_ou_mais,
+    SUM(CASE WHEN q011 = 'Não'           THEN 1 ELSE 0 END) AS carro_nao,
     SUM(CASE WHEN q011 LIKE 'Sim, um'                                          THEN 1 ELSE 0 END) AS carro_1,
     SUM(CASE WHEN q011 LIKE 'Sim, dois' OR q011 LIKE 'Sim, três%'             THEN 1 ELSE 0 END) AS carro_2_ou_mais,
     SUM(CASE WHEN q012 LIKE 'Sim%'                                             THEN 1 ELSE 0 END) AS motocicleta_sim,
@@ -91,11 +141,18 @@ SELECT
     SUM(CASE WHEN q021 LIKE 'Sim, um'                                          THEN 1 ELSE 0 END) AS computador_1,
     SUM(CASE WHEN q021 LIKE 'Sim, dois' OR q021 LIKE 'Sim, três%'
              OR q021 LIKE 'Sim, quatro%'                                       THEN 1 ELSE 0 END) AS computador_2_ou_mais,
+    SUM(CASE WHEN q022 = 'Não'           THEN 1 ELSE 0 END) AS celular_nao,
+    SUM(CASE WHEN q022 LIKE 'Sim, um'    THEN 1 ELSE 0 END) AS celular_1,
+    SUM(CASE WHEN q022 LIKE 'Sim, dois'  THEN 1 ELSE 0 END) AS celular_2,
     SUM(CASE WHEN q022 LIKE 'Sim, três%' OR q022 LIKE 'Sim, quatro%'          THEN 1 ELSE 0 END) AS celular_3_ou_mais,
 
     -- [QUESTIONÁRIO - ESCOLA]
-    SUM(CASE WHEN q023 = 'Somente em escola pública'          THEN 1 ELSE 0 END) AS tipo_escola_publica,
-    SUM(CASE WHEN q023 LIKE 'Somente em escola privada%'      THEN 1 ELSE 0 END) AS tipo_escola_privada
+    SUM(CASE WHEN q023 = 'Não frequentei escola de Ensino Médio'              THEN 1 ELSE 0 END) AS tipo_escola_nao_frequentou,
+    SUM(CASE WHEN q023 LIKE 'Parte em escola pública e parte em escol%'       THEN 1 ELSE 0 END) AS tipo_escola_mista,
+    SUM(CASE WHEN q023 LIKE 'Somente em escola privada com bolsa de e%'       THEN 1 ELSE 0 END) AS tipo_escola_privada_bolsa,
+    SUM(CASE WHEN q023 LIKE 'Somente em escola privada sem bolsa de e%'       THEN 1 ELSE 0 END) AS tipo_escola_privada_sem_bolsa,
+    SUM(CASE WHEN q023 = 'Somente em escola pública'                          THEN 1 ELSE 0 END) AS tipo_escola_publica,
+    SUM(CASE WHEN q023 LIKE 'Somente em escola privada%'                      THEN 1 ELSE 0 END) AS tipo_escola_privada
 
 FROM ed_enem_2024_participantes
 GROUP BY co_municipio_prova
