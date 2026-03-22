@@ -46,15 +46,27 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="plotly")
 
 def _get_db_config() -> dict | None:
     """
-    Lê as credenciais do banco PostgreSQL a partir de st.secrets["database"].
+    Lê as credenciais do banco PostgreSQL a partir de st.secrets.
+
+    Aceita dois formatos:
+    - Seção [database] com as chaves host/port/dbname/user/password (recomendado).
+    - Chaves host/port/dbname/user/password definidas no nível raiz do secrets.
+
     Retorna None quando as credenciais não estiverem configuradas ou ainda
     contiverem os valores de placeholder.
     """
+    _DB_KEYS = {"host", "port", "dbname", "user", "password"}
     try:
-        section = st.secrets["database"]
-        if str(section.get("host", "")).upper().startswith("SEU_"):
+        # Formato preferencial: [database] section
+        try:
+            section = dict(st.secrets["database"])
+        except KeyError:
+            # Fallback: chaves definidas no nível raiz
+            section = {k: st.secrets[k] for k in _DB_KEYS if k in st.secrets}
+
+        if not section or str(section.get("host", "")).upper().startswith("SEU_"):
             return None
-        return dict(section)
+        return section
     except (KeyError, FileNotFoundError):
         return None
 
