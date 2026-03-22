@@ -124,6 +124,13 @@ df = df_full[
 
 st.sidebar.markdown(f"**Municípios filtrados:** {len(df):,}")
 
+if df.empty:
+    st.warning(
+        "⚠️ Nenhum município corresponde aos filtros selecionados. "
+        "Selecione ao menos uma UF ou reduza o mínimo de inscritos."
+    )
+    st.stop()
+
 # ---------------------------------------------------------------------------
 # Banner de modo template
 # ---------------------------------------------------------------------------
