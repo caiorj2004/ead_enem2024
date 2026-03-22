@@ -21,6 +21,7 @@ import streamlit as st
 
 from analysis import (
     PROPORTION_COLS,
+    PROPORTION_GROUPS,
     PROPORTION_LABELS,
     QUALITATIVE_VARS,
     SCORE_COLS,
@@ -179,8 +180,8 @@ if page == "🏠 Visão Geral":
     )
     available_scores = [c for c in SCORE_COLS if c in df.columns]
     media_geral_br   = (
-        float(np.average(df["media_geral"], weights=df["total_inscritos"]))
-        if "media_geral" in df.columns
+        float(np.average(df["nota_geral_media"], weights=df["total_inscritos"]))
+        if "nota_geral_media" in df.columns
         else float(df[available_scores].mean().mean())
     )
 
@@ -341,17 +342,13 @@ elif page == "📊 Variáveis Qualitativas":
     st.markdown("---")
 
     # ---- Seção 3: Composição Demográfica por UF ----
-    st.subheader("�� Composição Demográfica por UF")
+    st.subheader("🔹 Composição Demográfica por UF")
     st.markdown(
         "Para cada estado, a média das proporções dos municípios "
-        "em cada grupo demográfico (sexo e raça/cor)."
+        "em cada grupo demográfico ou socioeconômico (Q001-Q023)."
     )
 
-    demo_cols = {
-        "Sexo":     ["pct_feminino"],
-        "Raça/Cor": ["pct_branca", "pct_parda", "pct_preta", "pct_amarela", "pct_indigena"],
-        "Socioeconômico": ["pct_internet", "pct_computador", "pct_classe_media_alta"],
-    }
+    demo_cols = PROPORTION_GROUPS
 
     demo_choice = st.selectbox(
         "Grupo demográfico",

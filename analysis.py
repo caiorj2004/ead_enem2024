@@ -4,14 +4,23 @@ analysis.py – Operações estatísticas e de análise dos dados do ENEM 2024.
 O DataFrame de entrada tem uma linha por município (estrutura produzida
 pelo pipeline de agregação em database.py) com as seguintes colunas:
 
-  Identificação:  cod_7, municipio, uf
-  Participantes:  total_inscritos, media_idade
-                  sexo_feminino, sexo_masculino
-                  raca_branca, raca_preta, raca_parda, raca_amarela, raca_indigena
-                  est_civil_solteiro, est_civil_casado, nac_brasileiro
-                  concluiu_em, ensino_regular, classe_media_alta
-                  tem_internet, tem_computador
-  Resultados:     media_cn, media_ch, media_lc, media_mt, media_redacao, media_geral
+  Identificação:   cod_7, municipio, uf
+  Participantes:   total_inscritos, media_idade
+    Demografics:   sexo_feminino, sexo_masculino
+                   raca_branca, raca_preta, raca_parda, raca_amarela, raca_indigena
+                   est_civil_solteiro, est_civil_casado
+                   nacionalidade_brasileiro, treineiro_sim
+    Q001-Q004:     escolaridade_pai_pos, escolaridade_mae_pos
+                   ocupacao_pai_grupo5, ocupacao_mae_grupo5
+    Q006-Q007:     possui_renda_sim, renda_familiar_nenhuma, renda_familiar_classe_a
+    Q008-Q022:     empregado_domestico_sim, banheiro_1/2/3_ou_mais, quarto_3_ou_mais
+                   carro_1, carro_2_ou_mais, motocicleta_sim, geladeira_sim
+                   freezer_sim, maquina_lavar_sim, micro_ondas_sim, aspirador_po_sim
+                   tv_sim, tv_assinatura_sim, internet_wifi_sim
+                   computador_1, computador_2_ou_mais, celular_3_ou_mais
+    Q023:          tipo_escola_publica, tipo_escola_privada
+  Resultados:      nota_ciencias_natureza, nota_ciencias_humanas, nota_linguagens,
+                   nota_matematica, nota_redacao, nota_geral_media
 
 Após apply_labels() são adicionadas colunas derivadas pct_* (proporções).
 
@@ -19,9 +28,10 @@ Funções exportadas
 ------------------
   apply_labels        – mapeia uf numérico para sigla e calcula pct_* columns
   frequency_table     – tabela de distribuição de frequência para variável categórica
+  inscribed_by_uf     – agrega inscritos por UF
   descriptive_stats   – estatísticas descritivas de colunas numéricas
   correlation_matrix  – matriz de correlação (Pearson/Spearman/Kendall)
-  mean_scores_by_group – médias de uma nota agrupadas por UF
+  mean_scores_by_group – médias ponderadas de uma nota agrupadas por UF
   normality_test      – Shapiro-Wilk
 """
 
@@ -48,7 +58,6 @@ IBGE_UF_MAP: dict[int, str] = {
 # Variáveis qualitativas (ao nível municipal)
 # ---------------------------------------------------------------------------
 
-# Única variável categórica genuína no DataFrame consolidado
 QUALITATIVE_VARS: list[dict] = [
     {"col": "uf", "title": "UF (Estado)"},
 ]
@@ -58,21 +67,21 @@ QUALITATIVE_VARS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 SCORE_COLS: list[str] = [
-    "media_cn",
-    "media_ch",
-    "media_lc",
-    "media_mt",
-    "media_redacao",
-    "media_geral",
+    "nota_ciencias_natureza",
+    "nota_ciencias_humanas",
+    "nota_linguagens",
+    "nota_matematica",
+    "nota_redacao",
+    "nota_geral_media",
 ]
 
 SCORE_LABELS: dict[str, str] = {
-    "media_cn":      "Ciências da Natureza",
-    "media_ch":      "Ciências Humanas",
-    "media_lc":      "Linguagens e Códigos",
-    "media_mt":      "Matemática",
-    "media_redacao": "Redação",
-    "media_geral":   "Média Geral",
+    "nota_ciencias_natureza": "Ciências da Natureza",
+    "nota_ciencias_humanas":  "Ciências Humanas",
+    "nota_linguagens":        "Linguagens e Códigos",
+    "nota_matematica":        "Matemática",
+    "nota_redacao":           "Redação",
+    "nota_geral_media":       "Média Geral",
 }
 
 # ---------------------------------------------------------------------------
@@ -81,36 +90,133 @@ SCORE_LABELS: dict[str, str] = {
 
 # Mapeamento: coluna_pct → coluna_contagem_origem
 PROPORTION_MAP: dict[str, str] = {
-    "pct_feminino":        "sexo_feminino",
-    "pct_parda":           "raca_parda",
-    "pct_branca":          "raca_branca",
-    "pct_preta":           "raca_preta",
-    "pct_amarela":         "raca_amarela",
-    "pct_indigena":        "raca_indigena",
-    "pct_solteiro":        "est_civil_solteiro",
-    "pct_concluiu_em":     "concluiu_em",
-    "pct_ensino_regular":  "ensino_regular",
-    "pct_classe_media_alta": "classe_media_alta",
-    "pct_internet":        "tem_internet",
-    "pct_computador":      "tem_computador",
+    # Demografics
+    "pct_feminino":              "sexo_feminino",
+    "pct_branca":                "raca_branca",
+    "pct_preta":                 "raca_preta",
+    "pct_parda":                 "raca_parda",
+    "pct_amarela":               "raca_amarela",
+    "pct_indigena":              "raca_indigena",
+    "pct_solteiro":              "est_civil_solteiro",
+    "pct_casado":                "est_civil_casado",
+    "pct_brasileiro":            "nacionalidade_brasileiro",
+    "pct_treineiro":             "treineiro_sim",
+    # Q001-Q004 Escolaridade e Ocupação
+    "pct_escolaridade_pai_pos":  "escolaridade_pai_pos",
+    "pct_escolaridade_mae_pos":  "escolaridade_mae_pos",
+    "pct_ocupacao_pai_grupo5":   "ocupacao_pai_grupo5",
+    "pct_ocupacao_mae_grupo5":   "ocupacao_mae_grupo5",
+    # Q006-Q007 Renda
+    "pct_possui_renda":          "possui_renda_sim",
+    "pct_renda_nenhuma":         "renda_familiar_nenhuma",
+    "pct_renda_classe_a":        "renda_familiar_classe_a",
+    # Q008-Q022 Bens e Tecnologia
+    "pct_empregado_domestico":   "empregado_domestico_sim",
+    "pct_banheiro_1":            "banheiro_1",
+    "pct_banheiro_2":            "banheiro_2",
+    "pct_banheiro_3_mais":       "banheiro_3_ou_mais",
+    "pct_quarto_3_mais":         "quarto_3_ou_mais",
+    "pct_carro_1":               "carro_1",
+    "pct_carro_2_mais":          "carro_2_ou_mais",
+    "pct_motocicleta":           "motocicleta_sim",
+    "pct_geladeira":             "geladeira_sim",
+    "pct_freezer":               "freezer_sim",
+    "pct_maquina_lavar":         "maquina_lavar_sim",
+    "pct_micro_ondas":           "micro_ondas_sim",
+    "pct_aspirador":             "aspirador_po_sim",
+    "pct_tv":                    "tv_sim",
+    "pct_tv_assinatura":         "tv_assinatura_sim",
+    "pct_internet":              "internet_wifi_sim",
+    "pct_computador_1":          "computador_1",
+    "pct_computador_2_mais":     "computador_2_ou_mais",
+    "pct_celular_3_mais":        "celular_3_ou_mais",
+    # Q023 Escola
+    "pct_escola_publica":        "tipo_escola_publica",
+    "pct_escola_privada":        "tipo_escola_privada",
 }
 
 PROPORTION_LABELS: dict[str, str] = {
-    "pct_feminino":          "% Feminino",
-    "pct_parda":             "% Parda",
-    "pct_branca":            "% Branca",
-    "pct_preta":             "% Preta",
-    "pct_amarela":           "% Amarela",
-    "pct_indigena":          "% Indígena",
-    "pct_solteiro":          "% Solteiro(a)",
-    "pct_concluiu_em":       "% Concluiu EM",
-    "pct_ensino_regular":    "% Ensino Regular",
-    "pct_classe_media_alta": "% Classe Média/Alta",
-    "pct_internet":          "% com Internet",
-    "pct_computador":        "% com Computador",
+    # Demografics
+    "pct_feminino":              "% Feminino",
+    "pct_branca":                "% Branca",
+    "pct_preta":                 "% Preta",
+    "pct_parda":                 "% Parda",
+    "pct_amarela":               "% Amarela",
+    "pct_indigena":              "% Indígena",
+    "pct_solteiro":              "% Solteiro(a)",
+    "pct_casado":                "% Casado(a)",
+    "pct_brasileiro":            "% Brasileiro(a)",
+    "pct_treineiro":             "% Treineiro",
+    # Q001-Q004 Escolaridade e Ocupação
+    "pct_escolaridade_pai_pos":  "% Pai Pós-graduado",
+    "pct_escolaridade_mae_pos":  "% Mãe Pós-graduada",
+    "pct_ocupacao_pai_grupo5":   "% Pai Grupo 5 (alta qual.)",
+    "pct_ocupacao_mae_grupo5":   "% Mãe Grupo 5 (alta qual.)",
+    # Q006-Q007 Renda
+    "pct_possui_renda":          "% com Renda",
+    "pct_renda_nenhuma":         "% Renda Nenhuma",
+    "pct_renda_classe_a":        "% Classe A (>R$28k)",
+    # Q008-Q022 Bens e Tecnologia
+    "pct_empregado_domestico":   "% Empregado Doméstico",
+    "pct_banheiro_1":            "% 1 Banheiro",
+    "pct_banheiro_2":            "% 2 Banheiros",
+    "pct_banheiro_3_mais":       "% 3+ Banheiros",
+    "pct_quarto_3_mais":         "% 3+ Quartos",
+    "pct_carro_1":               "% 1 Carro",
+    "pct_carro_2_mais":          "% 2+ Carros",
+    "pct_motocicleta":           "% Motocicleta",
+    "pct_geladeira":             "% Geladeira",
+    "pct_freezer":               "% Freezer",
+    "pct_maquina_lavar":         "% Máquina de Lavar",
+    "pct_micro_ondas":           "% Micro-ondas",
+    "pct_aspirador":             "% Aspirador de Pó",
+    "pct_tv":                    "% TV",
+    "pct_tv_assinatura":         "% TV por Assinatura",
+    "pct_internet":              "% Internet (Wi-Fi)",
+    "pct_computador_1":          "% 1 Computador",
+    "pct_computador_2_mais":     "% 2+ Computadores",
+    "pct_celular_3_mais":        "% 3+ Celulares",
+    # Q023 Escola
+    "pct_escola_publica":        "% Escola Pública",
+    "pct_escola_privada":        "% Escola Privada",
 }
 
 PROPORTION_COLS: list[str] = list(PROPORTION_MAP.keys())
+
+# Group keys for UI organisation (used in app.py demographic selector)
+PROPORTION_GROUPS: dict[str, list[str]] = {
+    "Sexo e Raça/Cor": [
+        "pct_feminino", "pct_branca", "pct_parda", "pct_preta",
+        "pct_amarela", "pct_indigena",
+    ],
+    "Estado Civil e Perfil": [
+        "pct_solteiro", "pct_casado", "pct_brasileiro", "pct_treineiro",
+    ],
+    "Escolaridade e Ocupação (Pais)": [
+        "pct_escolaridade_pai_pos", "pct_escolaridade_mae_pos",
+        "pct_ocupacao_pai_grupo5", "pct_ocupacao_mae_grupo5",
+    ],
+    "Renda Familiar": [
+        "pct_possui_renda", "pct_renda_nenhuma", "pct_renda_classe_a",
+    ],
+    "Bens do Domicílio": [
+        "pct_geladeira", "pct_freezer", "pct_maquina_lavar", "pct_micro_ondas",
+        "pct_aspirador", "pct_tv", "pct_tv_assinatura", "pct_empregado_domestico",
+    ],
+    "Moradia (Quartos e Banheiros)": [
+        "pct_banheiro_1", "pct_banheiro_2", "pct_banheiro_3_mais", "pct_quarto_3_mais",
+    ],
+    "Transporte": [
+        "pct_carro_1", "pct_carro_2_mais", "pct_motocicleta",
+    ],
+    "Tecnologia e Conectividade": [
+        "pct_internet", "pct_computador_1", "pct_computador_2_mais",
+        "pct_celular_3_mais",
+    ],
+    "Tipo de Escola (EM)": [
+        "pct_escola_publica", "pct_escola_privada",
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +264,6 @@ def frequency_table(df: pd.DataFrame, column: str) -> pd.DataFrame:
     """
     Tabela de distribuição de frequência para uma variável categórica.
 
-    Ao trabalhar com dados municipais, cada linha representa um município;
-    portanto a frequência absoluta conta municípios por categoria.
-
     Returns
     -------
     pd.DataFrame com colunas:
@@ -175,7 +278,7 @@ def frequency_table(df: pd.DataFrame, column: str) -> pd.DataFrame:
         "Freq. Absoluta":     counts.values,
         "Freq. Relativa (%)": (counts.values / total * 100).round(2),
     })
-    result["Freq. Absoluta Acumulada"]    = result["Freq. Absoluta"].cumsum()
+    result["Freq. Absoluta Acumulada"]     = result["Freq. Absoluta"].cumsum()
     result["Freq. Relativa Acumulada (%)"] = result["Freq. Relativa (%)"].cumsum().round(2)
     return result.reset_index(drop=True)
 
