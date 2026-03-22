@@ -401,10 +401,13 @@ PROPORTION_GROUPS: dict[str, list[str]] = {
     ],
 }
 
-# Columns shown in the heatmap (scores + all categorical proportion variables)
+# Columns shown in the heatmap (scores + sexo + raça/cor + escola)
 HEATMAP_COLS: list[str] = [
     *SCORE_COLS,
-    *PROPORTION_COLS,
+    "pct_feminino", "pct_masculino",
+    "pct_branca", "pct_parda", "pct_preta", "pct_amarela",
+    "pct_indigena", "pct_raca_nao_declarado",
+    "pct_escola_publica", "pct_escola_privada",
 ]
 
 
