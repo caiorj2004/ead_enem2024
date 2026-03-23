@@ -18,7 +18,16 @@ import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
+
+# ---------------------------------------------------------------------------
+# Configuração global: formato numérico brasileiro (. = mil, , = decimal)
+# ---------------------------------------------------------------------------
+
+_ptbr_template = go.layout.Template(layout=go.Layout(separators=",."))
+pio.templates["ptbr"] = _ptbr_template
+pio.templates.default = "plotly+ptbr"
 
 from analysis import (
     HEATMAP_COLS,
@@ -145,7 +154,7 @@ df = df_full[
     & (df_full["total_inscritos"] >= sel_min_ins)
 ].copy()
 
-st.sidebar.markdown(f"**Municípios filtrados:** {len(df):,}")
+st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
 
 if df.empty:
     st.warning(
@@ -167,6 +176,17 @@ PALETTE = px.colors.qualitative.Plotly
 
 def score_label(col: str) -> str:
     return SCORE_LABELS.get(col, PROPORTION_LABELS.get(col, col))
+
+
+def _fmt_br(value: float | int, decimals: int | None = None) -> str:
+    """Formata número no padrão brasileiro (. para milhares, , para decimais)."""
+    if pd.isna(value):
+        return "–"
+    if decimals is not None:
+        s = f"{float(value):,.{decimals}f}"
+    else:
+        s = f"{int(round(float(value))):,}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def card_metric(col, label, value, delta=None):
@@ -202,10 +222,10 @@ if page == "🏠 Visão Geral":
     )
 
     c1, c2, c3, c4 = st.columns(4)
-    card_metric(c1, "Municípios analisados",        f"{n_municipios:,}")
-    card_metric(c2, "Total de inscritos",            f"{total_inscritos:,}")
-    card_metric(c3, "Média de idade (ponderada)",    f"{media_idade:.1f} anos")
-    card_metric(c4, "Média geral nacional (ponderada)", f"{media_geral_br:.1f}")
+    card_metric(c1, "Municípios analisados",             _fmt_br(n_municipios))
+    card_metric(c2, "Total de inscritos",                _fmt_br(total_inscritos))
+    card_metric(c3, "Média de idade (ponderada)",        f"{_fmt_br(media_idade, 1)} anos")
+    card_metric(c4, "Média geral nacional (ponderada)",  _fmt_br(media_geral_br, 1))
 
     st.markdown("---")
 
@@ -221,9 +241,10 @@ if page == "🏠 Visão Geral":
             y="total_inscritos",
             color="total_inscritos",
             color_continuous_scale="Blues",
-            text_auto=True,
+            text=[_fmt_br(v) for v in uf_agg["total_inscritos"]],
             labels={"uf": "UF", "total_inscritos": "Inscritos"},
         )
+        fig_uf.update_traces(texttemplate="%{text}", textposition="outside")
         fig_uf.update_layout(height=400, showlegend=False,
                               coloraxis_showscale=False,
                               xaxis_title="UF", yaxis_title="Inscritos")
@@ -242,10 +263,10 @@ if page == "🏠 Visão Geral":
                 y=medias.values,
                 color=medias.values,
                 color_continuous_scale="Viridis",
-                text=[f"{v:.1f}" for v in medias.values],
-                labels={"x": "Área", "y": "Média"},
+                text=[_fmt_br(v, 1) for v in medias.values],
+                labels={"x": "Área", "y": "Nota"},
             )
-            fig_medias.update_traces(textposition="outside")
+            fig_medias.update_traces(texttemplate="%{text}", textposition="outside")
             fig_medias.update_layout(height=400, showlegend=False,
                                      coloraxis_showscale=False,
                                      xaxis_title="Área", yaxis_title="Média")
@@ -253,10 +274,11 @@ if page == "🏠 Visão Geral":
 
     # --- Prévia dos dados ---
     with st.expander("📋 Prévia dos dados municipais (primeiras 200 linhas)"):
-        preview_df = df.head(200)
-        if "cod_7" in preview_df.columns:
-            preview_df = preview_df.rename(columns={"cod_7": "codigo_municipio"})
-        st.dataframe(preview_df, use_container_width=True)
+        preview_df = df.head(200).copy()
+        _drop = {"cod_7"}
+        _first = [c for c in ["municipio", "uf"] if c in preview_df.columns]
+        _rest  = [c for c in preview_df.columns if c not in set(_first) | _drop]
+        st.dataframe(preview_df[_first + _rest], use_container_width=True)
 
 
 # ===========================================================================
@@ -284,17 +306,21 @@ elif page == "📊 Variáveis Qualitativas":
         st.dataframe(freq_df, use_container_width=True, hide_index=True)
 
     with tab_bar:
+        _freq_plot = freq_df.copy()
+        _freq_plot["_text"] = _freq_plot["Freq. Relativa (%)"].apply(
+            lambda v: f"{_fmt_br(v, 1)}%"
+        )
         fig_bar = px.bar(
-            freq_df,
+            _freq_plot,
             x="Categoria",
             y="Freq. Absoluta",
-            text="Freq. Relativa (%)",
+            text="_text",
             color="Categoria",
             color_discrete_sequence=PALETTE,
             labels={"Freq. Absoluta": "Nº de Municípios"},
             title="Número de Municípios por UF",
         )
-        fig_bar.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_bar.update_traces(texttemplate="%{text}", textposition="outside")
         fig_bar.update_layout(showlegend=False, height=440,
                                xaxis_title="UF", yaxis_title="Municípios")
         st.plotly_chart(fig_bar, use_container_width=True)
@@ -313,10 +339,11 @@ elif page == "📊 Variáveis Qualitativas":
             y="total_inscritos",
             color="total_inscritos",
             color_continuous_scale="Teal",
-            text_auto=True,
+            text=[_fmt_br(v) for v in uf_ins["total_inscritos"]],
             title="Total de Inscritos por Estado",
             labels={"uf": "UF", "total_inscritos": "Inscritos"},
         )
+        fig_ins.update_traces(texttemplate="%{text}", textposition="outside")
         fig_ins.update_layout(height=420, showlegend=False,
                                coloraxis_showscale=False,
                                xaxis_title="UF", yaxis_title="Inscritos")
@@ -418,10 +445,10 @@ elif page == "📈 Variáveis Quantitativas":
         mean_val   = hist_data.mean()
         median_val = hist_data.median()
         fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red",
-                           annotation_text=f"Média: {mean_val:.1f}",
+                           annotation_text=f"Média: {_fmt_br(mean_val, 1)}",
                            annotation_position="top right")
         fig_hist.add_vline(x=median_val, line_dash="dot", line_color="green",
-                           annotation_text=f"Mediana: {median_val:.1f}",
+                           annotation_text=f"Mediana: {_fmt_br(median_val, 1)}",
                            annotation_position="top left")
         fig_hist.update_layout(height=420, xaxis_title=sel_score_label,
                                 yaxis_title="Municípios")
@@ -431,14 +458,14 @@ elif page == "📈 Variáveis Quantitativas":
         norm = normality_test(df, sel_score_col)
         st.markdown("**Teste de Normalidade**")
         st.markdown(f"- Teste: {norm['teste']}")
-        st.markdown(f"- Estatística: {norm['estatística']:.4f}")
-        st.markdown(f"- p-valor: {norm['p_valor']:.6f}")
+        st.markdown(f"- Estatística: {_fmt_br(norm['estatística'], 4)}")
+        st.markdown(f"- p-valor: {_fmt_br(norm['p_valor'], 6)}")
         resultado = "✅ Normal" if norm["normal"] else "❌ Não Normal"
         st.markdown(f"- Resultado: {resultado}")
 
         st.markdown("**Percentis**")
         for pct in [10, 25, 50, 75, 90]:
-            st.markdown(f"- P{pct}: {np.percentile(hist_data, pct):.1f}")
+            st.markdown(f"- P{pct}: {_fmt_br(np.percentile(hist_data, pct), 1)}")
 
     st.markdown("---")
 
@@ -525,10 +552,10 @@ elif page == "📈 Variáveis Quantitativas":
         y="Média Ponderada",
         color="Média Ponderada",
         color_continuous_scale="Tealrose",
-        text="Média Ponderada",
+        text=[_fmt_br(v, 1) for v in grp_means["Média Ponderada"]],
         title=f"Média Ponderada de {sel_grp_score} por UF",
     )
-    fig_grp.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+    fig_grp.update_traces(texttemplate="%{text}", textposition="outside")
     fig_grp.update_layout(height=450, showlegend=False,
                            coloraxis_showscale=False,
                            xaxis_title="UF", yaxis_title="Nota Média Ponderada")

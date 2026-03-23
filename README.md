@@ -56,8 +56,8 @@ Como não há chave primária/estrangeira direta entre participantes e resultado
 ### 🏠 Visão Geral
 - KPIs nacionais: total de inscritos, média de idade, médias de notas
 - Gráfico de barras com inscritos por UF
-- Gráfico de barras com médias por área de conhecimento
-- **Prévia dos dados municipais** (primeiras 200 linhas) com coluna `codigo_municipio`
+- Gráfico de barras com notas por área de conhecimento
+- **Prévia dos dados municipais** (primeiras 200 linhas) exibindo o **nome do município** (`municipio`) como primeira coluna
 
 ### 📊 Variáveis Qualitativas
 - Distribuição de municípios por UF
@@ -127,7 +127,11 @@ streamlit run app.py
 
 5. **Módulo de análise (`analysis.py`)**: implementação das funções estatísticas (`descriptive_stats`, `frequency_table`, `correlation_matrix`, `normality_test`, `inscribed_by_uf`, `mean_scores_by_group`, `apply_labels`) e definição das constantes de colunas utilizadas no dashboard.
 
-6. **Renomeação da coluna `cod_7` para `codigo_municipio`** na tabela de prévia dos dados municipais (Visão Geral), tornando o nome mais legível para o usuário final sem alterar o DataFrame interno.
+6. **Troca da coluna de código de município pelo nome** na tabela de prévia dos dados municipais (Visão Geral): a coluna `cod_7` foi removida da exibição e `municipio` (nome) passa a ser a primeira coluna visível, tornando a tabela mais legível sem alterar o DataFrame interno.
+
+7. **Formatação numérica no padrão brasileiro**: todos os números exibidos no dashboard usam `.` como separador de milhares e `,` como separador de casas decimais (ex.: `1.234.567`, `525,3`). Isso foi aplicado nos KPIs, rótulos de barras, anotações de histogramas, estatísticas descritivas, percentis e nos eixos/tooltips de todos os gráficos via template global do Plotly.
+
+8. **Revisão de textos**: verificação de consistência nos rótulos e títulos para evitar ambiguidade entre "nota média por município" (valor agregado já calculado no pipeline) e "média nacional" (agregado ponderado dos valores municipais exibido nos KPIs e gráficos nacionais).
 
 ---
 
