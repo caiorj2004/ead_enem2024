@@ -37,7 +37,7 @@ Funções exportadas
   descriptive_stats   – estatísticas descritivas de colunas numéricas
   correlation_matrix  – matriz de correlação (Pearson/Spearman/Kendall)
   mean_scores_by_group – médias ponderadas de uma nota agrupadas por UF
-  normality_test      – Shapiro-Wilk
+  normality_test      – Shapiro-Wilk, Anderson-Darling, D'Agostino-Pearson, Jarque-Bera, Kolmogorov-Smirnov
 """
 
 from __future__ import annotations
@@ -602,18 +602,65 @@ def mean_scores_by_group(
 # Normalidade
 # ---------------------------------------------------------------------------
 
-def normality_test(df: pd.DataFrame, column: str) -> dict:
+NORMALITY_TESTS = [
+    "Shapiro-Wilk",
+    "Anderson-Darling",
+    "D'Agostino-Pearson",
+    "Jarque-Bera",
+    "Kolmogorov-Smirnov",
+]
+
+
+def normality_test(df: pd.DataFrame, column: str, test: str = "Shapiro-Wilk") -> dict:
     """
-    Teste de Shapiro-Wilk para normalidade.
-    Usa uma amostra de até 5000 linhas para grandes DataFrames.
+    Testa a normalidade de uma coluna numérica.
+
+    Parâmetros
+    ----------
+    df     : DataFrame com os dados municipais.
+    column : Nome da coluna a ser testada.
+    test   : Um dos valores em NORMALITY_TESTS.
+             Padrão: "Shapiro-Wilk".
+
+    Retorna dict com chaves: teste, estatística, p_valor, normal.
+    Para Anderson-Darling, p_valor é aproximado a partir do nível crítico de 5 %.
     """
     sample = df[column].dropna()
-    if len(sample) > 5000:
+    if test != "Anderson-Darling" and len(sample) > 5000:
         sample = sample.sample(5000, random_state=42)
 
-    stat, pval = scipy_stats.shapiro(sample)
+    if test == "Shapiro-Wilk":
+        stat, pval = scipy_stats.shapiro(sample)
+
+    elif test == "Anderson-Darling":
+        result = scipy_stats.anderson(sample, dist="norm")
+        stat = float(result.statistic)
+        # índice 2 → nível de significância 5 %
+        critical = float(result.critical_values[2])
+        pval = 0.0 if stat > critical else 0.10
+        return {
+            "teste":       "Anderson-Darling",
+            "estatística": round(stat, 6),
+            "p_valor":     round(pval, 6),
+            "normal":      bool(stat <= critical),
+        }
+
+    elif test == "D'Agostino-Pearson":
+        stat, pval = scipy_stats.normaltest(sample)
+
+    elif test == "Jarque-Bera":
+        stat, pval = scipy_stats.jarque_bera(sample)
+
+    elif test == "Kolmogorov-Smirnov":
+        mean_s = float(sample.mean())
+        std_s  = float(sample.std(ddof=1))
+        stat, pval = scipy_stats.kstest(sample, "norm", args=(mean_s, std_s))
+
+    else:
+        raise ValueError(f"Teste desconhecido: {test!r}. Use um de {NORMALITY_TESTS}.")
+
     return {
-        "teste":       "Shapiro-Wilk",
+        "teste":       test,
         "estatística": round(float(stat), 6),
         "p_valor":     round(float(pval), 6),
         "normal":      bool(pval > 0.05),

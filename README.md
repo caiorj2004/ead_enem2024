@@ -65,7 +65,7 @@ Como não há chave primária/estrangeira direta entre participantes e resultado
 
 ### 📈 Variáveis Quantitativas
 - Histogramas e box plots das médias municipais de notas
-- Estatísticas descritivas e teste de normalidade (Shapiro-Wilk)
+- Estatísticas descritivas e teste de normalidade com seleção do tipo: Shapiro-Wilk, Anderson-Darling, D'Agostino-Pearson, Jarque-Bera e Kolmogorov-Smirnov
 
 ### 🔗 Análise de Correlação
 - Heatmap de correlação (Pearson/Spearman/Kendall) entre notas e proporções demográficas

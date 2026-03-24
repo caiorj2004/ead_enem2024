@@ -44,6 +44,7 @@ from analysis import (
     inscribed_by_uf,
     mean_scores_by_group,
     normality_test,
+    NORMALITY_TESTS,
 )
 from database import load_data
 
@@ -431,6 +432,47 @@ elif page == "📈 Variáveis Quantitativas":
     )
     sel_score_col = all_quant_options[sel_score_label]
 
+    sel_test = st.selectbox(
+        "Teste de normalidade",
+        NORMALITY_TESTS,
+        key="norm_test_select",
+    )
+
+    _TEST_DESCRIPTIONS = {
+        "Shapiro-Wilk": (
+            "O **Shapiro-Wilk** avalia se uma amostra provém de uma população normalmente "
+            "distribuída calculando a correlação entre os dados ordenados e os quantis esperados "
+            "de uma normal. É considerado um dos testes mais poderosos para amostras pequenas "
+            "(n < 2 000), mas perde sensibilidade em amostras muito grandes."
+        ),
+        "Anderson-Darling": (
+            "O **Anderson-Darling** é uma versão aprimorada do teste de Kolmogorov-Smirnov que "
+            "atribui maior peso às caudas da distribuição. Por isso, é especialmente eficaz para "
+            "detectar desvios de normalidade nas regiões extremas dos dados. Retorna uma "
+            "estatística que é comparada a valores críticos tabelados para diferentes níveis de "
+            "significância."
+        ),
+        "D'Agostino-Pearson": (
+            "O **D'Agostino-Pearson** combina medidas de assimetria (*skewness*) e curtose "
+            "(*kurtosis*) em uma única estatística qui-quadrado com 2 graus de liberdade. É "
+            "robusto para amostras de tamanho moderado a grande e detecta bem desvios tanto na "
+            "forma simétrica quanto no achatamento da curva."
+        ),
+        "Jarque-Bera": (
+            "O **Jarque-Bera** também baseia sua estatística na assimetria e na curtose, mas usa "
+            "uma formulação ligeiramente diferente, sendo muito utilizado em econometria. É "
+            "assintoticamente distribuído como qui-quadrado com 2 graus de liberdade, portanto "
+            "funciona melhor com amostras grandes. Em amostras pequenas pode apresentar baixo "
+            "poder estatístico."
+        ),
+        "Kolmogorov-Smirnov": (
+            "O **Kolmogorov-Smirnov** (KS) mede a maior distância absoluta entre a função de "
+            "distribuição empírica da amostra e a distribuição normal teórica parametrizada pela "
+            "média e desvio-padrão observados. É um teste não-paramétrico de uso geral, embora "
+            "seja menos sensível nas caudas do que o Anderson-Darling."
+        ),
+    }
+
     col_hist, col_info = st.columns([3, 1])
 
     with col_hist:
@@ -455,8 +497,9 @@ elif page == "📈 Variáveis Quantitativas":
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with col_info:
-        norm = normality_test(df, sel_score_col)
+        norm = normality_test(df, sel_score_col, test=sel_test)
         st.markdown("**Teste de Normalidade**")
+        st.caption(_TEST_DESCRIPTIONS[sel_test])
         st.markdown(f"- Teste: {norm['teste']}")
         st.markdown(f"- Estatística: {_fmt_br(norm['estatística'], 4)}")
         st.markdown(f"- p-valor: {_fmt_br(norm['p_valor'], 6)}")
