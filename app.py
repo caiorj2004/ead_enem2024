@@ -265,10 +265,15 @@ if page == "🏠 Visão Geral":
         _drop = {"cod_7"}
         _first = [c for c in ["municipio", "uf"] if c in preview_df.columns]
         _rest  = [c for c in preview_df.columns if c not in set(_first) | _drop]
-        # Format percentage columns with Brazilian locale
-        _pct_cols = [c for c in preview_df.columns if c.startswith("pct_")]
+        # Format percentage and score columns with Brazilian locale
+        _pct_cols   = [c for c in preview_df.columns if c.startswith("pct_")]
+        _score_cols = [c for c in SCORE_COLS if c in preview_df.columns]
         for _c in _pct_cols:
             preview_df[_c] = preview_df[_c].apply(lambda v: _fmt_br(v, 2))
+        for _c in _score_cols:
+            preview_df[_c] = preview_df[_c].apply(
+                lambda v: _fmt_br(v, 1) if pd.notna(v) else "–"
+            )
         st.dataframe(preview_df[_first + _rest], use_container_width=True)
 
 
@@ -294,7 +299,11 @@ elif page == "📊 Variáveis Qualitativas":
 
     with tab_table:
         st.markdown("Cada linha representa quantos municípios estão em cada estado.")
-        st.dataframe(freq_df, use_container_width=True, hide_index=True)
+        freq_df_fmt = freq_df.copy()
+        for _c in ["Freq. Relativa (%)", "Freq. Relativa Acumulada (%)"]:
+            if _c in freq_df_fmt.columns:
+                freq_df_fmt[_c] = freq_df_fmt[_c].apply(lambda v: _fmt_br(v, 2))
+        st.dataframe(freq_df_fmt, use_container_width=True, hide_index=True)
 
     with tab_bar:
         _freq_plot = freq_df.copy()
@@ -571,7 +580,11 @@ elif page == "📈 Variáveis Quantitativas":
 
     with st.expander(f"📋 Médias ponderadas de {sel_score_box_lbl} por UF"):
         grp_table = mean_scores_by_group(df_full, sel_score_box_col, "uf")
-        st.dataframe(grp_table, use_container_width=True, hide_index=True)
+        grp_table_fmt = grp_table.copy()
+        grp_table_fmt["Média Ponderada"] = grp_table_fmt["Média Ponderada"].apply(
+            lambda v: _fmt_br(v, 2) if pd.notna(v) else "–"
+        )
+        st.dataframe(grp_table_fmt, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -650,7 +663,10 @@ elif page == "🔗 Análise de Correlação":
     st.plotly_chart(fig_heat, use_container_width=True)
 
     with st.expander("📋 Ver tabela da matriz de correlação"):
-        st.dataframe(corr_df, use_container_width=True)
+        corr_df_fmt = corr_df.apply(
+            lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+        )
+        st.dataframe(corr_df_fmt, use_container_width=True)
 
     st.markdown("---")
 
@@ -692,7 +708,10 @@ elif page == "🔗 Análise de Correlação":
         pair_corr = df[sel_pair_cols].corr(method=method).round(4)
         pair_corr = pair_corr.rename(index=renamed, columns=renamed)
         with st.expander("📋 Tabela de Correlação entre as variáveis selecionadas"):
-            st.dataframe(pair_corr, use_container_width=True)
+            pair_corr_fmt = pair_corr.apply(
+                lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+            )
+            st.dataframe(pair_corr_fmt, use_container_width=True)
     else:
         st.info("Selecione pelo menos 2 áreas de conhecimento para exibir o gráfico.")
 
