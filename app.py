@@ -162,29 +162,15 @@ st.sidebar.subheader("Filtros globais")
 all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
 sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
 
-# Filtro por tamanho do município (total_inscritos)
-min_ins = int(df_full["total_inscritos"].min())
-max_ins = int(df_full["total_inscritos"].max())
-sel_min_ins = st.sidebar.slider(
-    "Mínimo de inscritos por município",
-    min_value=min_ins,
-    max_value=max_ins,
-    value=min_ins,
-    step=max(1, (max_ins - min_ins) // 200),
-)
-
-# Aplica filtros
-df = df_full[
-    df_full["uf"].isin(sel_ufs)
-    & (df_full["total_inscritos"] >= sel_min_ins)
-].copy()
+# Aplica filtro de UF
+df = df_full[df_full["uf"].isin(sel_ufs)].copy()
 
 st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
 
 if df.empty:
     st.warning(
         "⚠️ Nenhum município corresponde aos filtros selecionados. "
-        "Selecione ao menos uma UF ou reduza o mínimo de inscritos."
+        "Selecione ao menos uma UF."
     )
     st.stop()
 
@@ -235,7 +221,7 @@ if page == "🏠 Visão Geral":
 
     with col_uf:
         st.subheader("Total de Inscritos por UF")
-        uf_agg = inscribed_by_uf(df).head(27)
+        uf_agg = inscribed_by_uf(df_full).head(27)
         fig_uf = px.bar(
             uf_agg,
             x="uf",
@@ -301,7 +287,7 @@ elif page == "📊 Variáveis Qualitativas":
     # ---- Seção 1: Distribuição por UF ----
     st.subheader("🔹 Distribuição de Municípios por UF")
 
-    freq_df = frequency_table(df, "uf")
+    freq_df = frequency_table(df_full, "uf")
     tab_table, tab_bar = st.tabs(
         ["Tabela de Frequência", "Gráfico de Barras"]
     )
@@ -320,8 +306,7 @@ elif page == "📊 Variáveis Qualitativas":
             x="Categoria",
             y="Freq. Absoluta",
             text="_text",
-            color="Categoria",
-            color_discrete_sequence=PALETTE,
+            color_discrete_sequence=["#636EFA"],
             labels={"Freq. Absoluta": "Nº de Municípios"},
             title="Número de Municípios por UF",
         )
@@ -334,7 +319,7 @@ elif page == "📊 Variáveis Qualitativas":
 
     # ---- Seção 2: Total de Inscritos por UF ----
     st.subheader("🔹 Total de Inscritos por UF")
-    uf_ins = inscribed_by_uf(df)
+    uf_ins = inscribed_by_uf(df_full)
 
     col_ins_bar, col_ins_tab = st.columns([2, 1])
     with col_ins_bar:
@@ -381,11 +366,11 @@ elif page == "📊 Variáveis Qualitativas":
         list(demo_cols.keys()),
         key="demo_group_sel",
     )
-    chosen_cols = [c for c in demo_cols[demo_choice] if c in df.columns]
+    chosen_cols = [c for c in demo_cols[demo_choice] if c in df_full.columns]
 
     if chosen_cols:
         uf_demo = (
-            df.groupby("uf")[chosen_cols].mean().round(2).reset_index()
+            df_full.groupby("uf")[chosen_cols].mean().round(2).reset_index()
         )
         uf_demo_melt = uf_demo.melt(id_vars="uf", var_name="Indicador", value_name="Proporção (%)")
         uf_demo_melt["Indicador"] = uf_demo_melt["Indicador"].map(PROPORTION_LABELS)
@@ -568,7 +553,7 @@ elif page == "📈 Variáveis Quantitativas":
     sel_score_box_col = score_opt_box[sel_score_box_lbl]
 
     fig_box_uf = px.box(
-        df.dropna(subset=[sel_score_box_col, "uf"]),
+        df_full.dropna(subset=[sel_score_box_col, "uf"]),
         x="uf",
         y=sel_score_box_col,
         color="uf",
@@ -582,7 +567,7 @@ elif page == "📈 Variáveis Quantitativas":
     st.plotly_chart(fig_box_uf, use_container_width=True)
 
     with st.expander(f"📋 Médias ponderadas de {sel_score_box_lbl} por UF"):
-        grp_table = mean_scores_by_group(df, sel_score_box_col, "uf")
+        grp_table = mean_scores_by_group(df_full, sel_score_box_col, "uf")
         st.dataframe(grp_table, use_container_width=True, hide_index=True)
 
     st.markdown("---")
@@ -593,7 +578,7 @@ elif page == "📈 Variáveis Quantitativas":
     sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="quant_uf_score")
     sel_grp_col   = score_opt_grp[sel_grp_score]
 
-    grp_means = mean_scores_by_group(df, sel_grp_col, "uf")
+    grp_means = mean_scores_by_group(df_full, sel_grp_col, "uf")
 
     fig_grp = px.bar(
         grp_means,
