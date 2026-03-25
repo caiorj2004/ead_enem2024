@@ -409,7 +409,10 @@ elif page == "📈 Variáveis Quantitativas":
     # --- Estatísticas descritivas ---
     st.subheader("Estatísticas Descritivas das Médias Municipais")
     stats_df = descriptive_stats(df, columns=available_scores)
-    st.dataframe(stats_df, use_container_width=True)
+    stats_df_fmt = stats_df.apply(
+        lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+    )
+    st.dataframe(stats_df_fmt, use_container_width=True)
     st.markdown("---")
 
     # ---- Histogramas ----
