@@ -595,7 +595,8 @@ elif page == "📈 Variáveis Quantitativas":
     fig_grp.update_traces(texttemplate="%{text}", textposition="outside")
     fig_grp.update_layout(height=450, showlegend=False,
                            coloraxis_showscale=False,
-                           xaxis_title="UF", yaxis_title="Nota Média Ponderada")
+                           xaxis_title="UF", yaxis_title="Nota Média Ponderada",
+                           yaxis_range=[300, 600])
     st.plotly_chart(fig_grp, use_container_width=True)
 
 
