@@ -104,6 +104,30 @@ def get_data(db_config: dict) -> pd.DataFrame:
     return df
 
 
+# ---------------------------------------------------------------------------
+# Helpers (definidos aqui para estarem disponíveis antes de qualquer uso)
+# ---------------------------------------------------------------------------
+
+def score_label(col: str) -> str:
+    return SCORE_LABELS.get(col, PROPORTION_LABELS.get(col, col))
+
+
+def _fmt_br(value: float | int, decimals: int | None = None) -> str:
+    """Formata número no padrão brasileiro (. para milhares, , para decimais)."""
+    if pd.isna(value):
+        return "–"
+    if decimals is not None:
+        s = f"{float(value):,.{decimals}f}"
+    else:
+        s = f"{int(round(float(value))):,}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def card_metric(col, label, value, delta=None):
+    with col:
+        st.metric(label=label, value=value, delta=delta)
+
+
 _db_config = _get_db_config()
 
 if not _db_config:
@@ -169,30 +193,6 @@ if df.empty:
 # ---------------------------------------------------------------------------
 
 PALETTE = px.colors.qualitative.Plotly
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def score_label(col: str) -> str:
-    return SCORE_LABELS.get(col, PROPORTION_LABELS.get(col, col))
-
-
-def _fmt_br(value: float | int, decimals: int | None = None) -> str:
-    """Formata número no padrão brasileiro (. para milhares, , para decimais)."""
-    if pd.isna(value):
-        return "–"
-    if decimals is not None:
-        s = f"{float(value):,.{decimals}f}"
-    else:
-        s = f"{int(round(float(value))):,}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def card_metric(col, label, value, delta=None):
-    with col:
-        st.metric(label=label, value=value, delta=delta)
 
 
 # ===========================================================================
