@@ -352,9 +352,11 @@ elif page == "📊 Variáveis Qualitativas":
 
     with col_ins_tab:
         st.markdown("**Tabela resumo**")
+        _tab_ins = uf_ins.rename(columns={"uf": "UF", "municipios": "Municípios",
+                                           "total_inscritos": "Inscritos"}).copy()
+        _tab_ins["Inscritos"] = _tab_ins["Inscritos"].apply(_fmt_br)
         st.dataframe(
-            uf_ins.rename(columns={"uf": "UF", "municipios": "Municípios",
-                                    "total_inscritos": "Inscritos"}),
+            _tab_ins,
             use_container_width=True,
             hide_index=True,
         )
@@ -722,7 +724,11 @@ elif page == "🔗 Análise de Correlação":
         sel_x_col = prop_options[sel_x_lbl]
         sel_y_col = score_options[sel_y_lbl]
 
-        scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna()
+        scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna().copy()
+        # Pre-format values for hover labels (Brazilian number format)
+        scatter_df["_x_fmt"]   = scatter_df[sel_x_col].apply(lambda v: _fmt_br(v, 3))
+        scatter_df["_y_fmt"]   = scatter_df[sel_y_col].apply(lambda v: _fmt_br(v, 1))
+        scatter_df["_ins_fmt"] = scatter_df["total_inscritos"].apply(_fmt_br)
         # Add OLS trend line without requiring statsmodels
         x_vals    = scatter_df[sel_x_col].values
         y_vals    = scatter_df[sel_y_col].values
@@ -734,12 +740,12 @@ elif page == "🔗 Análise de Correlação":
             y=scatter_df[sel_y_col],
             mode="markers",
             marker=dict(color="#636EFA", size=4, opacity=0.45),
-            customdata=scatter_df[["municipio", "total_inscritos"]].values,
+            customdata=scatter_df[["municipio", "total_inscritos", "_x_fmt", "_y_fmt", "_ins_fmt"]].values,
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
-                + f"{sel_x_lbl}: " + "%{x:.3f}<br>"
-                + f"{sel_y_lbl}: " + "%{y:.1f}<br>"
-                "Inscritos: %{customdata[1]:,}<extra></extra>"
+                + f"{sel_x_lbl}: " + "%{customdata[2]}<br>"
+                + f"{sel_y_lbl}: " + "%{customdata[3]}<br>"
+                "Inscritos: %{customdata[4]}<extra></extra>"
             ),
             name="Municípios",
             showlegend=False,
@@ -761,7 +767,7 @@ elif page == "🔗 Análise de Correlação":
         corr_val = scatter_df[[sel_x_col, sel_y_col]].corr(method=method).iloc[0, 1]
         st.markdown(
             f"**Correlação de {method.capitalize()} entre "
-            f"_{sel_x_lbl}_ e _{sel_y_lbl}_: `{corr_val:.4f}`**"
+            f"_{sel_x_lbl}_ e _{sel_y_lbl}_: `{_fmt_br(corr_val, 4)}`**"
         )
     else:
         st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
