@@ -279,6 +279,10 @@ if page == "🏠 Visão Geral":
         _drop = {"cod_7"}
         _first = [c for c in ["municipio", "uf"] if c in preview_df.columns]
         _rest  = [c for c in preview_df.columns if c not in set(_first) | _drop]
+        # Format percentage columns with Brazilian locale
+        _pct_cols = [c for c in preview_df.columns if c.startswith("pct_")]
+        for _c in _pct_cols:
+            preview_df[_c] = preview_df[_c].apply(lambda v: _fmt_br(v, 2))
         st.dataframe(preview_df[_first + _rest], use_container_width=True)
 
 
@@ -646,7 +650,7 @@ elif page == "🔗 Análise de Correlação":
         reversescale=True,
         zmin=-1,
         zmax=1,
-        annotation_text=[[f"{v:.2f}" for v in row] for row in corr_values],
+        annotation_text=[[_fmt_br(v, 2) for v in row] for row in corr_values],
         showscale=True,
     )
     fig_heat.update_layout(
