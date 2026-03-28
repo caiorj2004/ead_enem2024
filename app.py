@@ -148,6 +148,7 @@ st.sidebar.title("📚 ENEM 2024")
 st.sidebar.markdown("---")
 
 PAGES = [
+    "📖 Introdução",
     "🏠 Visão Geral",
     "📊 Variáveis Qualitativas",
     "📈 Variáveis Quantitativas",
@@ -182,10 +183,75 @@ PALETTE = px.colors.qualitative.Plotly
 
 
 # ===========================================================================
+# PÁGINA 0 – INTRODUÇÃO
+# ===========================================================================
+
+if page == "📖 Introdução":
+    st.title("📖 Introdução")
+    st.markdown("---")
+
+    st.markdown(
+        """
+## Sobre este dashboard
+
+Este painel interativo apresenta uma **análise exploratória dos microdados do ENEM 2024**,
+organizada em quatro seções temáticas:
+
+| Aba | Conteúdo |
+|-----|----------|
+| 🏠 Visão Geral | KPIs nacionais, total de inscritos por UF e médias por área de conhecimento |
+| 📊 Variáveis Qualitativas | Distribuição de municípios por UF e composição demográfica dos participantes |
+| 📈 Variáveis Quantitativas | Histogramas, box plots e estatísticas descritivas das notas municipais |
+| 🔗 Análise de Correlação | Heatmap e scatter matrix correlacionando notas com indicadores socioeconômicos |
+
+---
+
+## Etapas de desenvolvimento
+
+1. **Extração dos microdados** – os arquivos originais do INEP foram carregados em um banco
+   de dados PostgreSQL via Google Colab.
+2. **Agregação municipal** – os registros individuais foram agrupados por município
+   (`co_municipio_prova`), calculando médias ponderadas, contagens e proporções
+   demográficas por meio de queries SQL.
+3. **Modelagem** – o resultado foi exportado como um DataFrame pandas único
+   (uma linha por município) com as colunas de notas, inscritos e indicadores
+   socioeconômicos do questionário socioeconômico (Q001-Q023).
+4. **Visualização** – o dashboard foi construído com **Streamlit** e **Plotly Express**,
+   com fallback para SQLite quando o PostgreSQL não está disponível.
+
+---
+
+## Método de agregação dos dados
+
+Cada linha do conjunto de dados representa **um município**.
+As variáveis numéricas (notas por área, idade) foram calculadas como
+**médias ponderadas pelo número de inscritos**, de modo que municípios maiores
+contribuem proporcionalmente mais para os totais nacionais e estaduais.
+As variáveis demográficas (proporções de gênero, renda, escolaridade dos pais etc.)
+representam a **média das proporções municipais** dentro de cada estado.
+
+---
+
+## ⚠️ Observação sobre o filtro de UF
+
+O **filtro de UF** disponível no painel lateral afeta os indicadores e gráficos
+que dependem do subconjunto de municípios selecionados — por exemplo, os KPIs
+da Visão Geral, os histogramas e as estatísticas descritivas.
+
+Entretanto, os **objetos de comparação entre UFs** — como os gráficos de barras
+por estado, os box plots por UF e as tabelas de médias ponderadas por estado —
+**utilizam sempre o conjunto completo de dados** (`df_full`), independentemente
+do filtro aplicado. Isso garante que a comparação entre estados permaneça
+consistente e não seja distorcida pela seleção parcial de municípios.
+        """
+    )
+
+
+# ===========================================================================
 # PÁGINA 1 – VISÃO GERAL
 # ===========================================================================
 
-if page == "🏠 Visão Geral":
+elif page == "🏠 Visão Geral":
     st.title("🏠 Visão Geral – ENEM 2024")
     st.markdown(
         "Análise exploratória dos microdados do **ENEM 2024** agregados ao nível municipal. "
