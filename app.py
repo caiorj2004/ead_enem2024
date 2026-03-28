@@ -180,7 +180,12 @@ if page not in ("📖 Introdução", "🔬 Amostragem"):
         "📈 Variáveis Quantitativas": "quant_modo_sel",
         "🔗 Análise de Correlação":   "corr_modo_sel",
     }
-    _current_mode = st.session_state.get(_PAGE_MODE_KEYS.get(page, ""), "Agregação Municipal")
+    _mode_key = _PAGE_MODE_KEYS.get(page, "")
+    _current_mode = (
+        st.session_state.get(_mode_key, "Agregação Municipal")
+        if _mode_key
+        else "Agregação Municipal"
+    )
     _is_sampling_mode = _current_mode in _SAMPLING_MODES_SET
 
     if _is_sampling_mode:
