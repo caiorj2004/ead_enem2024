@@ -868,8 +868,10 @@ elif page == "🔬 Amostragem":
     st.title("🔬 Amostragem Estatística")
     st.markdown(
         "Dimensionamento amostral e comparação dos métodos de amostragem "
-        "com os parâmetros populacionais da **nota média** dos participantes do ENEM 2024.\n\n"
-        "_nota\\_média = (CN + CH + LC + MT + Redação) / 5_"
+        "aplicados às duas tabelas do banco de dados do ENEM 2024.\n\n"
+        "* **`ed_enem_2024_participantes`** – todos os inscritos (inclui ausentes e treineiros)\n"
+        "* **`ed_enem_2024_resultados`** – participantes **com as 5 notas válidas** "
+        "(realizaram todas as provas)"
     )
     st.markdown("---")
 
@@ -880,62 +882,114 @@ elif page == "🔬 Amostragem":
         st.error(f"Erro ao carregar dados de amostragem: {exc}")
         st.stop()
 
-    mom = sampling["momentos"]
-    n   = sampling["n_amostra"]
-    Z   = sampling["Z"]
-    E   = sampling["E"]
-    k   = sampling["k_sistematica"]
+    # Unpack resultados
+    mom_res = sampling["momentos_res"]
+    n_res   = sampling["n_amostra_res"]
+    k_res   = sampling["k_res"]
+    Z       = sampling["Z"]
+    E_res   = sampling["E_res"]
+
+    # Unpack participantes
+    mom_part = sampling["momentos_part"]
+    n_part   = sampling["n_amostra_part"]
+    k_part   = sampling["k_part"]
+    E_part   = sampling["E_part"]
+
+    # Population class distributions
+    df_cor_raca_pop = sampling["cor_raca_pop"]
+    df_sexo_pop     = sampling["sexo_pop"]
 
     # ---- 1. Parâmetros Populacionais ----
-    st.subheader("1. Parâmetros Populacionais – Nota Média Individual")
+    st.subheader("1. Parâmetros Populacionais")
     st.markdown(
-        "Momentos estatísticos calculados sobre a nota média de cada participante, "
-        "considerando apenas inscritos com nota de redação válida."
+        "As duas tabelas possuem populações distintas: "
+        f"`ed_enem_2024_participantes` tem **N = {_fmt_br(mom_part['N'])} inscritos** "
+        "(todos, incluindo ausentes), enquanto "
+        f"`ed_enem_2024_resultados` tem **N = {_fmt_br(mom_res['N'])} participantes** "
+        "com as 5 notas válidas. Essa diferença explica o N menor exibido anteriormente."
     )
 
-    _c1, _c2, _c3, _c4, _c5 = st.columns(5)
-    _c1.metric("N (população)",     _fmt_br(mom["N"]))
-    _c2.metric("Média (μ)",          _fmt_br(mom["media"], 2))
-    _c3.metric("Desvio Padrão (σ)",  _fmt_br(mom["desvio_padrao"], 2))
-    _c4.metric("Mínimo",             _fmt_br(mom["minimo"], 1))
-    _c5.metric("Máximo",             _fmt_br(mom["maximo"], 1))
+    _pop_col_part, _pop_col_res = st.columns(2)
 
-    with st.expander("📋 Tabela completa dos parâmetros populacionais"):
-        _params_df = pd.DataFrame([
-            {"Parâmetro": "N (tamanho da população)", "Símbolo": "N",  "Valor": _fmt_br(mom["N"])},
-            {"Parâmetro": "Média",                    "Símbolo": "μ",  "Valor": _fmt_br(mom["media"], 4)},
-            {"Parâmetro": "Variância",                "Símbolo": "σ²", "Valor": _fmt_br(mom["variancia"], 4)},
-            {"Parâmetro": "Desvio Padrão",            "Símbolo": "σ",  "Valor": _fmt_br(mom["desvio_padrao"], 4)},
-            {"Parâmetro": "Mínimo",                   "Símbolo": "min","Valor": _fmt_br(mom["minimo"], 2)},
-            {"Parâmetro": "Máximo",                   "Símbolo": "max","Valor": _fmt_br(mom["maximo"], 2)},
-        ])
-        st.dataframe(_params_df, use_container_width=True, hide_index=True)
+    with _pop_col_part:
+        st.markdown("#### Participantes (todos os inscritos)")
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("N", _fmt_br(mom_part["N"]))
+        _c2.metric("Média de Idade", _fmt_br(mom_part["media"], 1))
+        _c3.metric("Desvio Padrão", _fmt_br(mom_part["desvio_padrao"], 2))
+        with st.expander("📋 Parâmetros detalhados"):
+            st.dataframe(
+                pd.DataFrame([
+                    {"Parâmetro": "N (inscritos)",         "Símbolo": "N",   "Valor": _fmt_br(mom_part["N"])},
+                    {"Parâmetro": "Média de Idade",        "Símbolo": "μ",   "Valor": _fmt_br(mom_part["media"], 4)},
+                    {"Parâmetro": "Variância da Idade",    "Símbolo": "σ²",  "Valor": _fmt_br(mom_part["variancia"], 4)},
+                    {"Parâmetro": "Desvio Padrão da Idade","Símbolo": "σ",   "Valor": _fmt_br(mom_part["desvio_padrao"], 4)},
+                    {"Parâmetro": "Idade mínima",          "Símbolo": "min", "Valor": _fmt_br(mom_part["minimo"], 0)},
+                    {"Parâmetro": "Idade máxima",          "Símbolo": "max", "Valor": _fmt_br(mom_part["maximo"], 0)},
+                ]),
+                use_container_width=True, hide_index=True,
+            )
+
+    with _pop_col_res:
+        st.markdown("#### Resultados (5 notas válidas)")
+        _c1, _c2, _c3 = st.columns(3)
+        _c1.metric("N", _fmt_br(mom_res["N"]))
+        _c2.metric("Média da Nota", _fmt_br(mom_res["media"], 2))
+        _c3.metric("Desvio Padrão", _fmt_br(mom_res["desvio_padrao"], 2))
+        with st.expander("📋 Parâmetros detalhados"):
+            st.dataframe(
+                pd.DataFrame([
+                    {"Parâmetro": "N (com 5 notas válidas)", "Símbolo": "N",   "Valor": _fmt_br(mom_res["N"])},
+                    {"Parâmetro": "Média da Nota",           "Símbolo": "μ",   "Valor": _fmt_br(mom_res["media"], 4)},
+                    {"Parâmetro": "Variância",               "Símbolo": "σ²",  "Valor": _fmt_br(mom_res["variancia"], 4)},
+                    {"Parâmetro": "Desvio Padrão",           "Símbolo": "σ",   "Valor": _fmt_br(mom_res["desvio_padrao"], 4)},
+                    {"Parâmetro": "Mínimo",                  "Símbolo": "min", "Valor": _fmt_br(mom_res["minimo"], 2)},
+                    {"Parâmetro": "Máximo",                  "Símbolo": "max", "Valor": _fmt_br(mom_res["maximo"], 2)},
+                ]),
+                use_container_width=True, hide_index=True,
+            )
 
     st.markdown("---")
 
     # ---- 2. Cálculo do tamanho amostral ----
     st.subheader("2. Cálculo do Tamanho Amostral Mínimo")
+    st.markdown("Fórmula de Cochran com correção para população finita (95 % de confiança).")
 
-    _n0 = (Z ** 2 * mom["desvio_padrao"] ** 2) / (E ** 2)
+    _n0_part = (Z ** 2 * mom_part["desvio_padrao"] ** 2) / (E_part ** 2)
+    _n0_res  = (Z ** 2 * mom_res["desvio_padrao"] ** 2)  / (E_res  ** 2)
 
-    _col_form, _col_res = st.columns([2, 1])
-    with _col_form:
+    _ncol_part, _ncol_res = st.columns(2)
+    with _ncol_part:
         st.markdown(
+            f"**Participantes** _(variável: idade)_\n\n"
             f"| Parâmetro | Valor |\n"
             f"|-----------|-------|\n"
-            f"| Nível de confiança | 95% |\n"
+            f"| Nível de confiança | 95 % |\n"
             f"| Z | {_fmt_br(Z, 2)} |\n"
-            f"| Erro amostral (E) | {_fmt_br(E, 1)} pontos |\n"
-            f"| Desvio padrão (σ) | {_fmt_br(mom['desvio_padrao'], 2)} |\n"
-            f"| N (população) | {_fmt_br(mom['N'])} |\n\n"
-            f"**Fórmula de Cochran:**\n\n"
-            f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0, 1)}\n\n"
-            f"n = n₀ / (1 + (n₀ − 1) / N) = **{_fmt_br(n)}**\n\n"
-            f"k (intervalo sistemático) = N / n ≈ {_fmt_br(k)}"
+            f"| Erro amostral (E) | {_fmt_br(E_part, 1)} ano |\n"
+            f"| Desvio padrão (σ) | {_fmt_br(mom_part['desvio_padrao'], 2)} |\n"
+            f"| N | {_fmt_br(mom_part['N'])} |\n\n"
+            f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0_part, 1)}\n\n"
+            f"**n = {_fmt_br(n_part)}**  |  k = {_fmt_br(k_part)}"
         )
-    with _col_res:
-        st.metric("Tamanho da amostra (n)", _fmt_br(n))
-        st.metric("Intervalo sistemático (k)", _fmt_br(k))
+        st.metric("Tamanho da amostra (n)", _fmt_br(n_part))
+        st.metric("Intervalo sistemático (k)", _fmt_br(k_part))
+
+    with _ncol_res:
+        st.markdown(
+            f"**Resultados** _(variável: nota média)_\n\n"
+            f"| Parâmetro | Valor |\n"
+            f"|-----------|-------|\n"
+            f"| Nível de confiança | 95 % |\n"
+            f"| Z | {_fmt_br(Z, 2)} |\n"
+            f"| Erro amostral (E) | {_fmt_br(E_res, 1)} pontos |\n"
+            f"| Desvio padrão (σ) | {_fmt_br(mom_res['desvio_padrao'], 2)} |\n"
+            f"| N | {_fmt_br(mom_res['N'])} |\n\n"
+            f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0_res, 1)}\n\n"
+            f"**n = {_fmt_br(n_res)}**  |  k = {_fmt_br(k_res)}"
+        )
+        st.metric("Tamanho da amostra (n)", _fmt_br(n_res))
+        st.metric("Intervalo sistemático (k)", _fmt_br(k_res))
 
     st.markdown("---")
 
@@ -950,9 +1004,93 @@ elif page == "🔬 Amostragem":
         "nota_redacao": "Redação",
     }
 
-    def _sample_stats(df_s: pd.DataFrame) -> dict:
+    # ---------- helpers: class-count comparison ----------
+
+    def _class_comparison_chart(
+        df_sample: pd.DataFrame,
+        col: str,
+        df_pop: pd.DataFrame,
+        pop_col: str,
+        pop_count_col: str,
+        title: str,
+    ) -> None:
+        """Bar chart comparing class % in population vs sample."""
+        if col not in df_sample.columns:
+            return
+        sample_counts = (
+            df_sample[col].fillna("Não declarado")
+            .value_counts()
+            .reset_index()
+        )
+        sample_counts.columns = [col, "sample_count"]
+        total_sample = sample_counts["sample_count"].sum()
+        sample_counts["sample_%"] = sample_counts["sample_count"] / total_sample * 100
+
+        _pop = df_pop.rename(columns={pop_col: col, pop_count_col: "pop_count"}).copy()
+        pop_total = _pop["pop_count"].sum()
+        _pop["pop_%"] = _pop["pop_count"] / pop_total * 100
+
+        merged = pd.merge(
+            _pop[[col, "pop_%"]], sample_counts[[col, "sample_%"]], on=col, how="outer"
+        ).fillna(0)
+
+        _fig = go.Figure()
+        _fig.add_bar(x=merged[col], y=merged["pop_%"],    name="População (%)", marker_color="#636EFA")
+        _fig.add_bar(x=merged[col], y=merged["sample_%"], name="Amostra (%)",   marker_color="#EF553B")
+        _fig.update_layout(
+            title=title,
+            barmode="group",
+            xaxis_title=col.replace("_", " ").title(),
+            yaxis_title="Proporção (%)",
+            height=380,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(_fig, use_container_width=True)
+
+    def _class_comparison_table(
+        df_sample: pd.DataFrame,
+        col: str,
+        df_pop: pd.DataFrame,
+        pop_col: str,
+        pop_count_col: str,
+    ) -> None:
+        """Table comparing class counts and % between population and sample."""
+        if col not in df_sample.columns:
+            return
+        sample_counts = (
+            df_sample[col].fillna("Não declarado")
+            .value_counts()
+            .reset_index()
+        )
+        sample_counts.columns = [col, "Amostra (n)"]
+        sample_counts["Amostra (%)"] = (
+            sample_counts["Amostra (n)"] / sample_counts["Amostra (n)"].sum() * 100
+        ).round(2)
+
+        _pop = df_pop.rename(columns={pop_col: col, pop_count_col: "Pop. (N)"}).copy()
+        _pop["Pop. (%)"] = (_pop["Pop. (N)"] / _pop["Pop. (N)"].sum() * 100).round(2)
+
+        merged = pd.merge(
+            _pop[[col, "Pop. (N)", "Pop. (%)"]],
+            sample_counts[[col, "Amostra (n)", "Amostra (%)"]],
+            on=col, how="outer",
+        ).fillna(0)
+        merged["Amostra (n)"] = merged["Amostra (n)"].astype(int)
+        merged["Pop. (N)"]    = merged["Pop. (N)"].astype(int)
+        merged = merged.sort_values("Pop. (%)", ascending=False)
+        st.dataframe(merged, use_container_width=True, hide_index=True)
+
+    # ---------- render helpers ----------
+
+    def _render_sample_tab_res(label: str, df_s: pd.DataFrame, descricao: str) -> None:
+        """Renders one sampling method tab for ed_enem_2024_resultados."""
+        st.markdown(descricao)
+        if df_s.empty:
+            st.warning("A amostra está vazia. Verifique os dados no banco.")
+            return
+
         vals = df_s["nota_media"].dropna()
-        return {
+        stats = {
             "n":             len(vals),
             "media":         float(vals.mean()),
             "desvio_padrao": float(vals.std()),
@@ -960,48 +1098,32 @@ elif page == "🔬 Amostragem":
             "maximo":        float(vals.max()),
         }
 
-    def _render_sample_tab(label: str, df_s: pd.DataFrame, descricao: str) -> None:
-        st.markdown(descricao)
-
-        if df_s.empty:
-            st.warning("A amostra está vazia. Verifique os dados no banco.")
-            return
-
-        stats = _sample_stats(df_s)
-
-        # Metrics row
         _m1, _m2, _m3, _m4 = st.columns(4)
-        _m1.metric("n (amostra)",            _fmt_br(stats["n"]))
+        _m1.metric("n (amostra)", _fmt_br(stats["n"]))
         _m2.metric(
-            "Média (x̄)",
-            _fmt_br(stats["media"], 2),
-            f"{_fmt_br(stats['media'] - mom['media'], 2)} vs μ pop.",
+            "Média (x̄)", _fmt_br(stats["media"], 2),
+            f"{_fmt_br(stats['media'] - mom_res['media'], 2)} vs μ pop.",
         )
         _m3.metric(
-            "Desvio Padrão (s)",
-            _fmt_br(stats["desvio_padrao"], 2),
-            f"{_fmt_br(stats['desvio_padrao'] - mom['desvio_padrao'], 2)} vs σ pop.",
+            "Desvio Padrão (s)", _fmt_br(stats["desvio_padrao"], 2),
+            f"{_fmt_br(stats['desvio_padrao'] - mom_res['desvio_padrao'], 2)} vs σ pop.",
         )
-        _rel_err = abs(stats["media"] - mom["media"]) / mom["media"] * 100
+        _rel_err = abs(stats["media"] - mom_res["media"]) / mom_res["media"] * 100
         _m4.metric("Erro Relativo da Média", f"{_fmt_br(_rel_err, 4)}%")
 
-        # Comparison table
         _cmp_df = pd.DataFrame([
-            {"Estatística": "N / n",        "População": _fmt_br(mom["N"]),                "Amostra": _fmt_br(stats["n"])},
-            {"Estatística": "Média",        "População": _fmt_br(mom["media"], 4),         "Amostra": _fmt_br(stats["media"], 4)},
-            {"Estatística": "Desvio Padrão","População": _fmt_br(mom["desvio_padrao"], 4), "Amostra": _fmt_br(stats["desvio_padrao"], 4)},
-            {"Estatística": "Mínimo",       "População": _fmt_br(mom["minimo"], 2),        "Amostra": _fmt_br(stats["minimo"], 2)},
-            {"Estatística": "Máximo",       "População": _fmt_br(mom["maximo"], 2),        "Amostra": _fmt_br(stats["maximo"], 2)},
+            {"Estatística": "N / n",        "População": _fmt_br(mom_res["N"]),                "Amostra": _fmt_br(stats["n"])},
+            {"Estatística": "Média",        "População": _fmt_br(mom_res["media"], 4),         "Amostra": _fmt_br(stats["media"], 4)},
+            {"Estatística": "Desvio Padrão","População": _fmt_br(mom_res["desvio_padrao"], 4), "Amostra": _fmt_br(stats["desvio_padrao"], 4)},
+            {"Estatística": "Mínimo",       "População": _fmt_br(mom_res["minimo"], 2),        "Amostra": _fmt_br(stats["minimo"], 2)},
+            {"Estatística": "Máximo",       "População": _fmt_br(mom_res["maximo"], 2),        "Amostra": _fmt_br(stats["maximo"], 2)},
         ])
         st.dataframe(_cmp_df, use_container_width=True, hide_index=True)
 
-        # Histogram of sample nota_media
         _hist_col, _area_col = st.columns(2)
-
         with _hist_col:
             _fig_h = px.histogram(
-                df_s["nota_media"].dropna(),
-                nbins=50,
+                df_s["nota_media"].dropna(), nbins=50,
                 title=f"Distribuição da nota média – {label}",
                 labels={"value": "Nota Média", "count": "Participantes"},
                 color_discrete_sequence=["#636EFA"],
@@ -1012,16 +1134,13 @@ elif page == "🔬 Amostragem":
                 annotation_position="top right",
             )
             _fig_h.add_vline(
-                x=mom["media"], line_dash="dot", line_color="red",
-                annotation_text=f"μ = {_fmt_br(mom['media'], 1)}",
+                x=mom_res["media"], line_dash="dot", line_color="red",
+                annotation_text=f"μ = {_fmt_br(mom_res['media'], 1)}",
                 annotation_position="top left",
             )
-            _fig_h.update_layout(
-                height=380, xaxis_title="Nota Média", yaxis_title="Participantes"
-            )
+            _fig_h.update_layout(height=380, xaxis_title="Nota Média", yaxis_title="Participantes")
             st.plotly_chart(_fig_h, use_container_width=True)
 
-        # Mean by score area
         with _area_col:
             _avail = {
                 lbl: float(df_s[col].dropna().mean())
@@ -1034,74 +1153,188 @@ elif page == "🔬 Amostragem":
                     "Média Amostral": list(_avail.values()),
                 })
                 _fig_a = px.bar(
-                    _areas_df,
-                    x="Área",
-                    y="Média Amostral",
+                    _areas_df, x="Área", y="Média Amostral",
                     text=[_fmt_br(v, 1) for v in _areas_df["Média Amostral"]],
                     color_discrete_sequence=["#00CC96"],
                     title=f"Média por área – {label}",
                 )
                 _fig_a.update_traces(texttemplate="%{text}", textposition="outside")
                 _fig_a.update_layout(
-                    height=380,
-                    xaxis_title="Área",
-                    yaxis_title="Nota Média",
-                    showlegend=False,
+                    height=380, xaxis_title="Área", yaxis_title="Nota Média", showlegend=False
                 )
                 st.plotly_chart(_fig_a, use_container_width=True)
 
-        # Composition by cor_raca (if present)
-        if "cor_raca" in df_s.columns:
-            with st.expander("📋 Composição por cor/raça na amostra"):
-                _raca_counts = (
-                    df_s["cor_raca"]
-                    .value_counts()
-                    .rename_axis("Cor/Raça")
-                    .reset_index(name="n")
-                )
-                _raca_counts["% amostra"] = (
-                    _raca_counts["n"] / _raca_counts["n"].sum() * 100
-                ).round(2)
-                st.dataframe(_raca_counts, use_container_width=True, hide_index=True)
+        # Class comparison: top municipalities
+        if "municipio" in df_s.columns:
+            with st.expander("📋 Comparação por município (top 20 na amostra)"):
+                _mun = df_s["municipio"].value_counts().reset_index()
+                _mun.columns = ["Município", "n amostra"]
+                _mun["% amostra"] = (_mun["n amostra"] / _mun["n amostra"].sum() * 100).round(2)
+                st.dataframe(_mun.head(20), use_container_width=True, hide_index=True)
 
-    _tab_aas, _tab_est, _tab_sis = st.tabs([
-        "📊 AAS – Amostragem Aleatória Simples",
-        "🗂️ Estratificada (por município)",
-        "📐 Sistemática",
+    def _render_sample_tab_part(label: str, df_s: pd.DataFrame, descricao: str) -> None:
+        """Renders one sampling method tab for ed_enem_2024_participantes."""
+        st.markdown(descricao)
+        if df_s.empty:
+            st.warning("A amostra está vazia. Verifique os dados no banco.")
+            return
+
+        vals = df_s["idade"].dropna()
+        stats = {
+            "n":             len(vals),
+            "media":         float(vals.mean()),
+            "desvio_padrao": float(vals.std()),
+            "minimo":        float(vals.min()),
+            "maximo":        float(vals.max()),
+        }
+
+        _m1, _m2, _m3, _m4 = st.columns(4)
+        _m1.metric("n (amostra)", _fmt_br(stats["n"]))
+        _m2.metric(
+            "Média de Idade (x̄)", _fmt_br(stats["media"], 1),
+            f"{_fmt_br(stats['media'] - mom_part['media'], 2)} vs μ pop.",
+        )
+        _m3.metric(
+            "Desvio Padrão (s)", _fmt_br(stats["desvio_padrao"], 2),
+            f"{_fmt_br(stats['desvio_padrao'] - mom_part['desvio_padrao'], 2)} vs σ pop.",
+        )
+        _rel_err = abs(stats["media"] - mom_part["media"]) / mom_part["media"] * 100
+        _m4.metric("Erro Relativo da Média", f"{_fmt_br(_rel_err, 4)}%")
+
+        _cmp_df = pd.DataFrame([
+            {"Estatística": "N / n",         "População": _fmt_br(mom_part["N"]),                "Amostra": _fmt_br(stats["n"])},
+            {"Estatística": "Média de Idade","População": _fmt_br(mom_part["media"], 4),         "Amostra": _fmt_br(stats["media"], 4)},
+            {"Estatística": "Desvio Padrão", "População": _fmt_br(mom_part["desvio_padrao"], 4), "Amostra": _fmt_br(stats["desvio_padrao"], 4)},
+            {"Estatística": "Mínimo",        "População": _fmt_br(mom_part["minimo"], 0),        "Amostra": _fmt_br(stats["minimo"], 0)},
+            {"Estatística": "Máximo",        "População": _fmt_br(mom_part["maximo"], 0),        "Amostra": _fmt_br(stats["maximo"], 0)},
+        ])
+        st.dataframe(_cmp_df, use_container_width=True, hide_index=True)
+
+        _hist_col, _pie_col = st.columns(2)
+        with _hist_col:
+            _fig_h = px.histogram(
+                df_s["idade"].dropna(), nbins=40,
+                title=f"Distribuição de Idade – {label}",
+                labels={"value": "Idade", "count": "Participantes"},
+                color_discrete_sequence=["#636EFA"],
+            )
+            _fig_h.add_vline(
+                x=stats["media"], line_dash="dash", line_color="blue",
+                annotation_text=f"x̄ = {_fmt_br(stats['media'], 1)}",
+                annotation_position="top right",
+            )
+            _fig_h.add_vline(
+                x=mom_part["media"], line_dash="dot", line_color="red",
+                annotation_text=f"μ = {_fmt_br(mom_part['media'], 1)}",
+                annotation_position="top left",
+            )
+            _fig_h.update_layout(height=380, xaxis_title="Idade", yaxis_title="Participantes")
+            st.plotly_chart(_fig_h, use_container_width=True)
+
+        with _pie_col:
+            if "cor_raca" in df_s.columns:
+                _rc = df_s["cor_raca"].fillna("Não declarado").value_counts().reset_index()
+                _rc.columns = ["Cor/Raça", "n"]
+                _fig_r = px.pie(
+                    _rc, names="Cor/Raça", values="n",
+                    title=f"Cor/Raça na amostra – {label}", height=380,
+                )
+                st.plotly_chart(_fig_r, use_container_width=True)
+
+        # Class comparison: cor/raça vs population
+        st.markdown("**Comparação por Cor/Raça: Amostra × População**")
+        _class_comparison_chart(
+            df_s, "cor_raca", df_cor_raca_pop, "cor_raca", "pop_count",
+            f"Proporção por Cor/Raça – {label} vs. População",
+        )
+        _class_comparison_table(df_s, "cor_raca", df_cor_raca_pop, "cor_raca", "pop_count")
+
+        # Class comparison: sexo vs population
+        if "sexo" in df_s.columns:
+            st.markdown("**Comparação por Sexo: Amostra × População**")
+            _class_comparison_chart(
+                df_s, "sexo", df_sexo_pop, "sexo", "pop_count",
+                f"Proporção por Sexo – {label} vs. População",
+            )
+            _class_comparison_table(df_s, "sexo", df_sexo_pop, "sexo", "pop_count")
+
+    # ---------- outer tabs: one per table ----------
+
+    _tab_part, _tab_res = st.tabs([
+        "👥 Tabela: Participantes",
+        "📝 Tabela: Resultados",
     ])
 
-    with _tab_aas:
-        _render_sample_tab(
-            "AAS",
-            sampling["aas"],
-            (
-                f"**Amostragem Aleatória Simples (AAS):** {_fmt_br(n)} participantes "
-                "selecionados de forma completamente aleatória da população, "
-                "sem nenhuma restrição de estratificação."
-            ),
+    with _tab_part:
+        st.markdown(
+            f"Amostras da tabela **`ed_enem_2024_participantes`** "
+            f"(N = {_fmt_br(mom_part['N'])} inscritos). "
+            "Variável de interesse: **idade**. "
+            "Amostragem estratificada por **cor/raça** (`tp_cor_raca`)."
         )
+        _ptab_aas, _ptab_est, _ptab_sis = st.tabs([
+            "📊 AAS – Amostragem Aleatória Simples",
+            "🗂️ Estratificada (por cor/raça)",
+            "📐 Sistemática",
+        ])
+        with _ptab_aas:
+            _render_sample_tab_part(
+                "AAS (Participantes)",
+                sampling["aas_part"],
+                f"**Amostragem Aleatória Simples (AAS):** {_fmt_br(n_part)} participantes "
+                f"selecionados de forma completamente aleatória dentre os {_fmt_br(mom_part['N'])} inscritos.",
+            )
+        with _ptab_est:
+            _render_sample_tab_part(
+                "Estratificada (Participantes)",
+                sampling["estratificada_part"],
+                f"**Amostragem Estratificada** por _cor/raça_ (`tp_cor_raca`): "
+                f"a amostra de {_fmt_br(n_part)} participantes é distribuída "
+                "proporcionalmente entre os estratos de cor/raça, "
+                "garantindo representatividade racial.",
+            )
+        with _ptab_sis:
+            _render_sample_tab_part(
+                "Sistemática (Participantes)",
+                sampling["sistematica_part"],
+                f"**Amostragem Sistemática:** intervalo k = {_fmt_br(k_part)}. "
+                "A população é ordenada por município; "
+                f"seleciona-se cada k-ésimo inscrito, gerando uma amostra de até {_fmt_br(n_part)}.",
+            )
 
-    with _tab_est:
-        _render_sample_tab(
-            "Estratificada",
-            sampling["estratificada"],
-            (
-                "**Amostragem Estratificada** por _município_ (`co_municipio_prova`): "
-                f"a amostra total de {_fmt_br(n)} participantes é distribuída proporcionalmente "
-                "entre os estratos municipais, garantindo representatividade geográfica. "
-                "_(Nota: a coluna cor/raça existe apenas em `ed_enem_2024_participantes` e "
-                "não possui chave de junção individual com `ed_enem_2024_resultados`, "
-                "portanto a estratificação é feita apenas por município.)_"
-            ),
+    with _tab_res:
+        st.markdown(
+            f"Amostras da tabela **`ed_enem_2024_resultados`** "
+            f"(N = {_fmt_br(mom_res['N'])} participantes com as 5 notas válidas). "
+            "Variável de interesse: **nota média** _(CN + CH + LC + MT + Redação) / 5_. "
+            "Amostragem estratificada por **município** (`co_municipio_prova`)."
         )
-
-    with _tab_sis:
-        _render_sample_tab(
-            "Sistemática",
-            sampling["sistematica"],
-            (
-                f"**Amostragem Sistemática:** intervalo k = {_fmt_br(k)}. "
-                "A população é ordenada por município e identificador do participante; "
-                f"seleciona-se cada k-ésimo elemento, gerando uma amostra de até {_fmt_br(n)} participantes."
-            ),
-        )
+        _rtab_aas, _rtab_est, _rtab_sis = st.tabs([
+            "📊 AAS – Amostragem Aleatória Simples",
+            "🗂️ Estratificada (por município)",
+            "📐 Sistemática",
+        ])
+        with _rtab_aas:
+            _render_sample_tab_res(
+                "AAS (Resultados)",
+                sampling["aas_res"],
+                f"**Amostragem Aleatória Simples (AAS):** {_fmt_br(n_res)} participantes "
+                "selecionados de forma completamente aleatória da sub-população com notas válidas.",
+            )
+        with _rtab_est:
+            _render_sample_tab_res(
+                "Estratificada (Resultados)",
+                sampling["estratificada_res"],
+                f"**Amostragem Estratificada** por _município_ (`co_municipio_prova`): "
+                f"a amostra de {_fmt_br(n_res)} participantes é distribuída "
+                "proporcionalmente entre os estratos municipais, "
+                "garantindo representatividade geográfica.",
+            )
+        with _rtab_sis:
+            _render_sample_tab_res(
+                "Sistemática (Resultados)",
+                sampling["sistematica_res"],
+                f"**Amostragem Sistemática:** intervalo k = {_fmt_br(k_res)}. "
+                "A população é ordenada por município; "
+                f"seleciona-se cada k-ésimo elemento, gerando uma amostra de até {_fmt_br(n_res)} participantes.",
+            )

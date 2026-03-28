@@ -365,6 +365,97 @@ LIMIT {n}
 
 
 # ---------------------------------------------------------------------------
+# Sampling – participantes table (all 4.3 M registered participants)
+# ---------------------------------------------------------------------------
+# Variable for Cochran formula: idade_calculada (age in years).
+# Stratification: tp_cor_raca (race/color).
+# E = 0.5 years (half-year acceptable error for mean-age estimation).
+
+_QUERY_MOMENTOS_PART = """
+SELECT
+    COUNT(*)                        AS pop_n,
+    AVG(idade_calculada)            AS pop_media,
+    VARIANCE(idade_calculada)       AS pop_variancia,
+    STDDEV(idade_calculada)         AS pop_desvio_padrao,
+    MIN(idade_calculada)            AS pop_minimo,
+    MAX(idade_calculada)            AS pop_maximo
+FROM ed_enem_2024_participantes
+"""
+
+_QUERY_COR_RACA_POP = """
+SELECT
+    COALESCE(tp_cor_raca, 'Não declarado') AS cor_raca,
+    COUNT(*) AS pop_count
+FROM ed_enem_2024_participantes
+GROUP BY tp_cor_raca
+ORDER BY pop_count DESC
+"""
+
+_QUERY_SEXO_POP = """
+SELECT
+    COALESCE(tp_sexo, 'Não informado') AS sexo,
+    COUNT(*) AS pop_count
+FROM ed_enem_2024_participantes
+GROUP BY tp_sexo
+ORDER BY pop_count DESC
+"""
+
+# {n} substituted as plain integer.
+_QUERY_AAS_PART = """
+SELECT
+    idade_calculada     AS idade,
+    tp_cor_raca         AS cor_raca,
+    tp_sexo             AS sexo,
+    co_municipio_prova  AS municipio
+FROM ed_enem_2024_participantes
+ORDER BY RANDOM()
+LIMIT {n}
+"""
+
+# {pop_n} and {n} substituted as plain integers.
+# Stratification by tp_cor_raca (race/color).
+_QUERY_ESTRATIFICADA_PART = """
+WITH ranked AS (
+    SELECT
+        idade_calculada     AS idade,
+        tp_cor_raca         AS cor_raca,
+        tp_sexo             AS sexo,
+        co_municipio_prova  AS municipio,
+        COUNT(*) OVER (
+            PARTITION BY tp_cor_raca
+        )                   AS tamanho_estrato,
+        ROW_NUMBER() OVER (
+            PARTITION BY tp_cor_raca
+            ORDER BY RANDOM()
+        )                   AS rn
+    FROM ed_enem_2024_participantes
+)
+SELECT idade, cor_raca, sexo, municipio
+FROM ranked
+WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
+"""
+
+# {k} systematic interval; {n} caps the result.
+_QUERY_SISTEMATICA_PART = """
+WITH numbered AS (
+    SELECT
+        idade_calculada     AS idade,
+        tp_cor_raca         AS cor_raca,
+        tp_sexo             AS sexo,
+        co_municipio_prova  AS municipio,
+        ROW_NUMBER() OVER (
+            ORDER BY co_municipio_prova
+        )                   AS rn
+    FROM ed_enem_2024_participantes
+)
+SELECT idade, cor_raca, sexo, municipio
+FROM numbered
+WHERE MOD(rn, {k}::bigint) = 0
+LIMIT {n}
+"""
+
+
+# ---------------------------------------------------------------------------
 # Sampling helpers
 # ---------------------------------------------------------------------------
 
@@ -387,23 +478,29 @@ def _calcular_n_amostra(
 
 def load_sampling_data(db_config: dict[str, Any]) -> dict:
     """
-    Coleta momentos populacionais da nota_media e gera três amostras estatísticas
-    via PostgreSQL (individual-level, não agregado).
+    Coleta momentos populacionais e gera três amostras estatísticas para
+    **duas** tabelas via PostgreSQL (individual-level, não agregado):
 
-    Parâmetros de amostragem:
-        nível de confiança = 95%  →  Z = 1,96
-        erro amostral (E) = 3 pontos na nota_media
+    * ``ed_enem_2024_participantes`` – todos os inscritos (N ≈ 4,3 M).
+      Variável de Cochran: ``idade_calculada``  (E = 0,5 ano, 95 % confiança).
+      Estratificação: ``tp_cor_raca``.
+
+    * ``ed_enem_2024_resultados`` – participantes com as 5 notas válidas (N ≈ 3 M).
+      Variável de Cochran: ``nota_media_5_notas`` (E = 3 pontos, 95 % confiança).
+      Estratificação: ``co_municipio_prova``.
 
     Returns
     -------
     dict com chaves:
-        momentos      – dict com N, media, variancia, desvio_padrao, minimo, maximo
-        n_amostra     – int, tamanho mínimo calculado
-        Z, E          – parâmetros usados
-        k_sistematica – intervalo sistemático k = N // n
-        aas           – pd.DataFrame (Amostragem Aleatória Simples)
-        estratificada – pd.DataFrame (por cor/raça × município)
-        sistematica   – pd.DataFrame (sistemática)
+
+    Resultados:
+        momentos_res, n_amostra_res, k_res, aas_res, estratificada_res, sistematica_res
+
+    Participantes:
+        momentos_part, n_amostra_part, k_part, aas_part, estratificada_part, sistematica_part
+
+    Compartilhados:
+        Z, E_res, E_part, cor_raca_pop (DataFrame), sexo_pop (DataFrame)
 
     Raises
     ------
@@ -424,7 +521,9 @@ def load_sampling_data(db_config: dict[str, Any]) -> dict:
             "Adicione-o a requirements.txt para usar o banco PostgreSQL."
         ) from exc
 
-    Z, E = 1.96, 3.0
+    Z     = 1.96
+    E_res  = 3.0   # acceptable error in score points
+    E_part = 0.5   # acceptable error in age years
 
     conn = psycopg2.connect(
         host=db_config["host"],
@@ -434,45 +533,70 @@ def load_sampling_data(db_config: dict[str, Any]) -> dict:
         password=db_config["password"],
     )
     try:
-        # 1. Momentos populacionais
-        row = pd.read_sql(_QUERY_MOMENTOS, conn).iloc[0]
-        pop_n = int(row["pop_n"])
-        momentos = {
-            "N":             pop_n,
-            "media":         float(row["pop_media"]),
-            "variancia":     float(row["pop_variancia"]),
-            "desvio_padrao": float(row["pop_desvio_padrao"]),
-            "minimo":        float(row["pop_minimo"]),
-            "maximo":        float(row["pop_maximo"]),
+        # ---- RESULTADOS ----
+        row_res = pd.read_sql(_QUERY_MOMENTOS, conn).iloc[0]
+        pop_n_res = int(row_res["pop_n"])
+        momentos_res = {
+            "N":             pop_n_res,
+            "media":         float(row_res["pop_media"]),
+            "variancia":     float(row_res["pop_variancia"]),
+            "desvio_padrao": float(row_res["pop_desvio_padrao"]),
+            "minimo":        float(row_res["pop_minimo"]),
+            "maximo":        float(row_res["pop_maximo"]),
         }
+        n_res = _calcular_n_amostra(pop_n_res, momentos_res["desvio_padrao"], Z, E_res)
+        k_res = max(1, pop_n_res // n_res)
 
-        # 2. Tamanho mínimo da amostra
-        n = _calcular_n_amostra(pop_n, momentos["desvio_padrao"], Z, E)
-        k = max(1, pop_n // n)
+        df_aas_res = pd.read_sql(_QUERY_AAS.format(n=n_res), conn)
+        df_est_res = pd.read_sql(_QUERY_ESTRATIFICADA.format(pop_n=pop_n_res, n=n_res), conn)
+        df_sis_res = pd.read_sql(_QUERY_SISTEMATICA.format(k=k_res, n=n_res), conn)
 
-        # 3. Amostragem Aleatória Simples (AAS)
-        df_aas = pd.read_sql(_QUERY_AAS.format(n=n), conn)
+        # ---- PARTICIPANTES ----
+        row_part = pd.read_sql(_QUERY_MOMENTOS_PART, conn).iloc[0]
+        pop_n_part = int(row_part["pop_n"])
+        momentos_part = {
+            "N":             pop_n_part,
+            "media":         float(row_part["pop_media"]),
+            "variancia":     float(row_part["pop_variancia"]),
+            "desvio_padrao": float(row_part["pop_desvio_padrao"]),
+            "minimo":        float(row_part["pop_minimo"]),
+            "maximo":        float(row_part["pop_maximo"]),
+        }
+        n_part = _calcular_n_amostra(pop_n_part, momentos_part["desvio_padrao"], Z, E_part)
+        k_part = max(1, pop_n_part // n_part)
 
-        # 4. Amostragem Estratificada (cor/raça × município)
-        df_est = pd.read_sql(
-            _QUERY_ESTRATIFICADA.format(pop_n=pop_n, n=n), conn
+        df_cor_raca_pop = pd.read_sql(_QUERY_COR_RACA_POP, conn)
+        df_sexo_pop     = pd.read_sql(_QUERY_SEXO_POP, conn)
+
+        df_aas_part = pd.read_sql(_QUERY_AAS_PART.format(n=n_part), conn)
+        df_est_part = pd.read_sql(
+            _QUERY_ESTRATIFICADA_PART.format(pop_n=pop_n_part, n=n_part), conn
         )
-
-        # 5. Amostragem Sistemática
-        df_sis = pd.read_sql(
-            _QUERY_SISTEMATICA.format(k=k, n=n), conn
-        )
+        df_sis_part = pd.read_sql(_QUERY_SISTEMATICA_PART.format(k=k_part, n=n_part), conn)
     finally:
         conn.close()
 
     return {
-        "momentos":      momentos,
-        "n_amostra":     n,
-        "Z":             Z,
-        "E":             E,
-        "k_sistematica": k,
-        "aas":           df_aas,
-        "estratificada": df_est,
-        "sistematica":   df_sis,
+        # Resultados (participants with all 5 valid scores)
+        "momentos_res":      momentos_res,
+        "n_amostra_res":     n_res,
+        "k_res":             k_res,
+        "aas_res":           df_aas_res,
+        "estratificada_res": df_est_res,
+        "sistematica_res":   df_sis_res,
+        # Participantes (all registered participants)
+        "momentos_part":      momentos_part,
+        "n_amostra_part":     n_part,
+        "k_part":             k_part,
+        "aas_part":           df_aas_part,
+        "estratificada_part": df_est_part,
+        "sistematica_part":   df_sis_part,
+        # Shared parameters and population class distributions
+        "Z":            Z,
+        "E_res":        E_res,
+        "E_part":       E_part,
+        "cor_raca_pop": df_cor_raca_pop,
+        "sexo_pop":     df_sexo_pop,
     }
+
 
