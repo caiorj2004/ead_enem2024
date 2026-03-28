@@ -212,6 +212,7 @@ organizada em quatro seções temáticas:
 | 📊 Variáveis Qualitativas | Distribuição de municípios por UF e composição demográfica dos participantes |
 | 📈 Variáveis Quantitativas | Histogramas, box plots e estatísticas descritivas das notas municipais |
 | 🔗 Análise de Correlação | Heatmap e scatter matrix correlacionando notas com indicadores socioeconômicos |
+| 🔬 Amostragem | Dimensionamento amostral e comparação de três métodos de amostragem |
 
 ---
 
@@ -225,7 +226,15 @@ organizada em quatro seções temáticas:
 3. **Modelagem** – o resultado foi exportado como um DataFrame pandas único
    (uma linha por município) com as colunas de notas, inscritos e indicadores
    socioeconômicos do questionário socioeconômico (Q001-Q023).
-4. **Visualização** – o dashboard foi construído com **Streamlit** e **Plotly Express**,
+4. **Amostragem estatística** – foram aplicados três métodos de amostragem
+   (**Aleatória Simples**, **Estratificada** e **Sistemática**) sobre duas tabelas
+   de granularidade individual: `ed_enem_2024_participantes` (N ≈ 4,3 M inscritos,
+   estratificada por cor/raça) e `ed_enem_2024_resultados` (N ≈ 3 M com as 5
+   notas válidas, estratificada por município). Os tamanhos amostrais foram
+   calculados pela fórmula de Cochran com correção para população finita
+   (confiança 95 %). Acesse a aba **🔬 Amostragem** ou use o filtro
+   **Modo de visualização** nas abas Variáveis para explorar os resultados.
+5. **Visualização** – o dashboard foi construído com **Streamlit** e **Plotly Express**,
    com fallback para SQLite quando o PostgreSQL não está disponível.
 
 ---
@@ -358,121 +367,272 @@ elif page == "🏠 Visão Geral":
 
 elif page == "📊 Variáveis Qualitativas":
     st.title("📊 Variáveis Qualitativas")
-    st.markdown(
-        "Tabelas de distribuição de frequência e gráficos para a variável "
-        "categórica principal (UF) e a composição demográfica dos municípios."
+
+    _QUAL_MODO_OPTS = [
+        "Agregação Municipal",
+        "AAS – Amostragem Aleatória Simples",
+        "Estratificada (por cor/raça)",
+        "Sistemática",
+    ]
+    _qual_modo = st.selectbox(
+        "Modo de visualização",
+        _QUAL_MODO_OPTS,
+        key="qual_modo_sel",
+        help=(
+            "**Agregação Municipal**: dados agregados por município (uma linha por município).\n\n"
+            "**AAS / Estratificada / Sistemática**: dados individuais amostrados da tabela "
+            "`ed_enem_2024_participantes` (N ≈ 4,3 M inscritos)."
+        ),
     )
     st.markdown("---")
+
+    if _qual_modo == "Agregação Municipal":
+        st.markdown(
+            "Tabelas de distribuição de frequência e gráficos para a variável "
+            "categórica principal (UF) e a composição demográfica dos municípios."
+        )
+        st.markdown("---")
 
     # ---- Seção 1: Distribuição por UF ----
-    st.subheader("🔹 Distribuição de Municípios por UF")
+        st.subheader("🔹 Distribuição de Municípios por UF")
 
-    freq_df = frequency_table(df_full, "uf")
-    tab_table, tab_bar = st.tabs(
-        ["Tabela de Frequência", "Gráfico de Barras"]
-    )
-
-    with tab_table:
-        st.markdown("Cada linha representa quantos municípios estão em cada estado.")
-        freq_df_fmt = freq_df.copy()
-        for _c in ["Freq. Relativa (%)", "Freq. Relativa Acumulada (%)"]:
-            if _c in freq_df_fmt.columns:
-                freq_df_fmt[_c] = freq_df_fmt[_c].apply(lambda v: _fmt_br(v, 2))
-        st.dataframe(freq_df_fmt, use_container_width=True, hide_index=True)
-
-    with tab_bar:
-        _freq_plot = freq_df.copy()
-        _freq_plot["_text"] = _freq_plot["Freq. Relativa (%)"].apply(
-            lambda v: f"{_fmt_br(v, 1)}%"
-        )
-        fig_bar = px.bar(
-            _freq_plot,
-            x="Categoria",
-            y="Freq. Absoluta",
-            text="_text",
-            color_discrete_sequence=["#636EFA"],
-            labels={"Freq. Absoluta": "Nº de Municípios"},
-            title="Número de Municípios por UF",
-        )
-        fig_bar.update_traces(texttemplate="%{text}", textposition="outside")
-        fig_bar.update_layout(showlegend=False, height=440,
-                               xaxis_title="UF", yaxis_title="Municípios")
-        st.plotly_chart(fig_bar, use_container_width=True)
-
-    st.markdown("---")
-
-    # ---- Seção 2: Total de Inscritos por UF ----
-    st.subheader("🔹 Total de Inscritos por UF")
-    uf_ins = inscribed_by_uf(df_full)
-
-    col_ins_bar, col_ins_tab = st.columns([2, 1])
-    with col_ins_bar:
-        fig_ins = px.bar(
-            uf_ins,
-            x="uf",
-            y="total_inscritos",
-            color="total_inscritos",
-            color_continuous_scale="Teal",
-            text=[_fmt_br(v) for v in uf_ins["total_inscritos"]],
-            title="Total de Inscritos por Estado",
-            labels={"uf": "UF", "total_inscritos": "Inscritos"},
-        )
-        fig_ins.update_traces(texttemplate="%{text}", textposition="outside")
-        fig_ins.update_layout(height=420, showlegend=False,
-                               coloraxis_showscale=False,
-                               xaxis_title="UF", yaxis_title="Inscritos")
-        st.plotly_chart(fig_ins, use_container_width=True)
-
-    with col_ins_tab:
-        st.markdown("**Tabela resumo**")
-        _tab_ins = uf_ins.rename(columns={"uf": "UF", "municipios": "Municípios",
-                                           "total_inscritos": "Inscritos"}).copy()
-        _tab_ins["Inscritos"] = _tab_ins["Inscritos"].apply(_fmt_br)
-        st.dataframe(
-            _tab_ins,
-            use_container_width=True,
-            hide_index=True,
+        freq_df = frequency_table(df_full, "uf")
+        tab_table, tab_bar = st.tabs(
+            ["Tabela de Frequência", "Gráfico de Barras"]
         )
 
-    st.markdown("---")
+        with tab_table:
+            st.markdown("Cada linha representa quantos municípios estão em cada estado.")
+            freq_df_fmt = freq_df.copy()
+            for _c in ["Freq. Relativa (%)", "Freq. Relativa Acumulada (%)"]:
+                if _c in freq_df_fmt.columns:
+                    freq_df_fmt[_c] = freq_df_fmt[_c].apply(lambda v: _fmt_br(v, 2))
+            st.dataframe(freq_df_fmt, use_container_width=True, hide_index=True)
 
-    # ---- Seção 3: Composição Demográfica por UF ----
-    st.subheader("🔹 Composição Demográfica por UF")
-    st.markdown(
-        "Para cada estado, a média das proporções dos municípios "
-        "em cada grupo demográfico ou socioeconômico (Q001-Q023)."
-    )
+        with tab_bar:
+            _freq_plot = freq_df.copy()
+            _freq_plot["_text"] = _freq_plot["Freq. Relativa (%)"].apply(
+                lambda v: f"{_fmt_br(v, 1)}%"
+            )
+            fig_bar = px.bar(
+                _freq_plot,
+                x="Categoria",
+                y="Freq. Absoluta",
+                text="_text",
+                color_discrete_sequence=["#636EFA"],
+                labels={"Freq. Absoluta": "Nº de Municípios"},
+                title="Número de Municípios por UF",
+            )
+            fig_bar.update_traces(texttemplate="%{text}", textposition="outside")
+            fig_bar.update_layout(showlegend=False, height=440,
+                                   xaxis_title="UF", yaxis_title="Municípios")
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    demo_cols = PROPORTION_GROUPS
+        st.markdown("---")
 
-    demo_choice = st.selectbox(
-        "Grupo demográfico",
-        list(demo_cols.keys()),
-        key="demo_group_sel",
-    )
-    chosen_cols = [c for c in demo_cols[demo_choice] if c in df_full.columns]
+        # ---- Seção 2: Total de Inscritos por UF ----
+        st.subheader("🔹 Total de Inscritos por UF")
+        uf_ins = inscribed_by_uf(df_full)
 
-    if chosen_cols:
-        uf_demo = (
-            df_full.groupby("uf")[chosen_cols].mean().round(2).reset_index()
+        col_ins_bar, col_ins_tab = st.columns([2, 1])
+        with col_ins_bar:
+            fig_ins = px.bar(
+                uf_ins,
+                x="uf",
+                y="total_inscritos",
+                color="total_inscritos",
+                color_continuous_scale="Teal",
+                text=[_fmt_br(v) for v in uf_ins["total_inscritos"]],
+                title="Total de Inscritos por Estado",
+                labels={"uf": "UF", "total_inscritos": "Inscritos"},
+            )
+            fig_ins.update_traces(texttemplate="%{text}", textposition="outside")
+            fig_ins.update_layout(height=420, showlegend=False,
+                                   coloraxis_showscale=False,
+                                   xaxis_title="UF", yaxis_title="Inscritos")
+            st.plotly_chart(fig_ins, use_container_width=True)
+
+        with col_ins_tab:
+            st.markdown("**Tabela resumo**")
+            _tab_ins = uf_ins.rename(columns={"uf": "UF", "municipios": "Municípios",
+                                               "total_inscritos": "Inscritos"}).copy()
+            _tab_ins["Inscritos"] = _tab_ins["Inscritos"].apply(_fmt_br)
+            st.dataframe(
+                _tab_ins,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("---")
+
+        # ---- Seção 3: Composição Demográfica por UF ----
+        st.subheader("🔹 Composição Demográfica por UF")
+        st.markdown(
+            "Para cada estado, a média das proporções dos municípios "
+            "em cada grupo demográfico ou socioeconômico (Q001-Q023)."
         )
-        uf_demo_melt = uf_demo.melt(id_vars="uf", var_name="Indicador", value_name="Proporção (%)")
-        uf_demo_melt["Indicador"] = uf_demo_melt["Indicador"].map(PROPORTION_LABELS)
 
-        fig_demo = px.bar(
-            uf_demo_melt,
-            x="uf",
-            y="Proporção (%)",
-            color="Indicador",
-            barmode="group",
-            color_discrete_sequence=PALETTE,
-            title=f"Média Municipal de {demo_choice} por UF",
-            labels={"uf": "UF"},
+        demo_cols = PROPORTION_GROUPS
+
+        demo_choice = st.selectbox(
+            "Grupo demográfico",
+            list(demo_cols.keys()),
+            key="demo_group_sel",
         )
-        fig_demo.update_layout(height=460, xaxis_title="UF")
-        st.plotly_chart(fig_demo, use_container_width=True)
+        chosen_cols = [c for c in demo_cols[demo_choice] if c in df_full.columns]
+
+        if chosen_cols:
+            uf_demo = (
+                df_full.groupby("uf")[chosen_cols].mean().round(2).reset_index()
+            )
+            uf_demo_melt = uf_demo.melt(id_vars="uf", var_name="Indicador", value_name="Proporção (%)")
+            uf_demo_melt["Indicador"] = uf_demo_melt["Indicador"].map(PROPORTION_LABELS)
+
+            fig_demo = px.bar(
+                uf_demo_melt,
+                x="uf",
+                y="Proporção (%)",
+                color="Indicador",
+                barmode="group",
+                color_discrete_sequence=PALETTE,
+                title=f"Média Municipal de {demo_choice} por UF",
+                labels={"uf": "UF"},
+            )
+            fig_demo.update_layout(height=460, xaxis_title="UF")
+            st.plotly_chart(fig_demo, use_container_width=True)
+        else:
+            st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
+
     else:
-        st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
+        # ---- Modo amostragem ----
+        _QUAL_SAMPLE_MAP = {
+            "AAS – Amostragem Aleatória Simples": "aas_part",
+            "Estratificada (por cor/raça)":       "estratificada_part",
+            "Sistemática":                         "sistematica_part",
+        }
+        _qual_sample_key = _QUAL_SAMPLE_MAP[_qual_modo]
+
+        try:
+            _q_sampling = get_sampling_data(_db_config)
+        except Exception as _exc:
+            st.error(f"Erro ao carregar dados de amostragem: {_exc}")
+            st.stop()
+
+        _df_q = _q_sampling[_qual_sample_key]
+        _mom_part_q = _q_sampling["momentos_part"]
+        _n_part_q   = _q_sampling["n_amostra_part"]
+        _k_part_q   = _q_sampling["k_part"]
+        _df_cor_pop  = _q_sampling["cor_raca_pop"]
+        _df_sexo_pop = _q_sampling["sexo_pop"]
+
+        st.markdown(
+            f"Dados individuais amostrados da tabela **`ed_enem_2024_participantes`** "
+            f"(N = {_fmt_br(_mom_part_q['N'])} inscritos) pelo método **{_qual_modo}**."
+        )
+
+        if _df_q.empty:
+            st.warning("A amostra está vazia. Verifique os dados no banco.")
+            st.stop()
+
+        st.markdown(f"**n (amostra) = {_fmt_br(len(_df_q))}**")
+        st.markdown("---")
+
+        # ---- Distribuição de Cor/Raça ----
+        st.subheader("🔹 Distribuição por Cor/Raça")
+        if "cor_raca" in _df_q.columns:
+            _cr_counts = _df_q["cor_raca"].fillna("Não declarado").value_counts().reset_index()
+            _cr_counts.columns = ["Cor/Raça", "n"]
+            _cr_counts["% amostra"] = (_cr_counts["n"] / _cr_counts["n"].sum() * 100).round(2)
+
+            _cr_pop = _df_cor_pop.rename(columns={"cor_raca": "Cor/Raça", "pop_count": "N pop."}).copy()
+            _cr_pop["% pop."] = (_cr_pop["N pop."] / _cr_pop["N pop."].sum() * 100).round(2)
+
+            _cr_merged = pd.merge(_cr_pop[["Cor/Raça", "N pop.", "% pop."]], _cr_counts, on="Cor/Raça", how="outer").fillna(0)
+            _cr_merged["N pop."] = _cr_merged["N pop."].astype(int)
+            _cr_merged["n"]      = _cr_merged["n"].astype(int)
+            _cr_merged = _cr_merged.sort_values("% pop.", ascending=False)
+
+            _cr_col_chart, _cr_col_tab = st.columns(2)
+            with _cr_col_chart:
+                _fig_cr = go.Figure()
+                _fig_cr.add_bar(x=_cr_merged["Cor/Raça"], y=_cr_merged["% pop."],
+                                name="População (%)", marker_color="#636EFA")
+                _fig_cr.add_bar(x=_cr_merged["Cor/Raça"], y=_cr_merged["% amostra"],
+                                name="Amostra (%)", marker_color="#EF553B")
+                _fig_cr.update_layout(
+                    title="Proporção por Cor/Raça: Amostra × População",
+                    barmode="group", xaxis_title="Cor/Raça", yaxis_title="Proporção (%)",
+                    height=380,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                st.plotly_chart(_fig_cr, use_container_width=True)
+            with _cr_col_tab:
+                st.markdown("**Tabela: Cor/Raça × Amostra**")
+                st.dataframe(_cr_merged.rename(columns={"n": "Amostra (n)", "% amostra": "Amostra (%)"}),
+                             use_container_width=True, hide_index=True)
+        else:
+            st.info("Coluna `cor_raca` não disponível na amostra.")
+
+        st.markdown("---")
+
+        # ---- Distribuição de Sexo ----
+        st.subheader("🔹 Distribuição por Sexo")
+        if "sexo" in _df_q.columns:
+            _sx_counts = _df_q["sexo"].fillna("Não informado").value_counts().reset_index()
+            _sx_counts.columns = ["Sexo", "n"]
+            _sx_counts["% amostra"] = (_sx_counts["n"] / _sx_counts["n"].sum() * 100).round(2)
+
+            _sx_pop = _df_sexo_pop.rename(columns={"sexo": "Sexo", "pop_count": "N pop."}).copy()
+            _sx_pop["% pop."] = (_sx_pop["N pop."] / _sx_pop["N pop."].sum() * 100).round(2)
+
+            _sx_merged = pd.merge(_sx_pop[["Sexo", "N pop.", "% pop."]], _sx_counts, on="Sexo", how="outer").fillna(0)
+            _sx_merged["N pop."] = _sx_merged["N pop."].astype(int)
+            _sx_merged["n"]      = _sx_merged["n"].astype(int)
+            _sx_merged = _sx_merged.sort_values("% pop.", ascending=False)
+
+            _sx_col_chart, _sx_col_tab = st.columns(2)
+            with _sx_col_chart:
+                _fig_sx = go.Figure()
+                _fig_sx.add_bar(x=_sx_merged["Sexo"], y=_sx_merged["% pop."],
+                                name="População (%)", marker_color="#636EFA")
+                _fig_sx.add_bar(x=_sx_merged["Sexo"], y=_sx_merged["% amostra"],
+                                name="Amostra (%)", marker_color="#EF553B")
+                _fig_sx.update_layout(
+                    title="Proporção por Sexo: Amostra × População",
+                    barmode="group", xaxis_title="Sexo", yaxis_title="Proporção (%)",
+                    height=320,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                st.plotly_chart(_fig_sx, use_container_width=True)
+            with _sx_col_tab:
+                st.markdown("**Tabela: Sexo × Amostra**")
+                st.dataframe(_sx_merged.rename(columns={"n": "Amostra (n)", "% amostra": "Amostra (%)"}),
+                             use_container_width=True, hide_index=True)
+        else:
+            st.info("Coluna `sexo` não disponível na amostra.")
+
+        st.markdown("---")
+
+        # ---- Distribuição de Idade ----
+        st.subheader("🔹 Distribuição de Idade")
+        if "idade" in _df_q.columns:
+            _id_vals = _df_q["idade"].dropna()
+            _fig_id = px.histogram(
+                _id_vals, nbins=40,
+                title="Distribuição de Idade (amostra)",
+                labels={"value": "Idade", "count": "Participantes"},
+                color_discrete_sequence=["#636EFA"],
+            )
+            _fig_id.add_vline(x=float(_id_vals.mean()), line_dash="dash", line_color="blue",
+                              annotation_text=f"x̄ = {_fmt_br(float(_id_vals.mean()), 1)}",
+                              annotation_position="top right")
+            _fig_id.add_vline(x=_mom_part_q["media"], line_dash="dot", line_color="red",
+                              annotation_text=f"μ pop. = {_fmt_br(_mom_part_q['media'], 1)}",
+                              annotation_position="top left")
+            _fig_id.update_layout(height=360, xaxis_title="Idade", yaxis_title="Participantes")
+            st.plotly_chart(_fig_id, use_container_width=True)
+        else:
+            st.info("Coluna `idade` não disponível na amostra.")
 
 
 # ===========================================================================
@@ -481,211 +641,365 @@ elif page == "📊 Variáveis Qualitativas":
 
 elif page == "📈 Variáveis Quantitativas":
     st.title("📈 Variáveis Quantitativas")
-    st.markdown(
-        "Histogramas, box plots e estatísticas descritivas das **médias municipais** "
-        "de notas do ENEM 2024. Cada observação representa um município."
+
+    _QUANT_MODO_OPTS = [
+        "Agregação Municipal",
+        "AAS – Amostragem Aleatória Simples",
+        "Estratificada (por município)",
+        "Sistemática",
+    ]
+    _quant_modo = st.selectbox(
+        "Modo de visualização",
+        _QUANT_MODO_OPTS,
+        key="quant_modo_sel",
+        help=(
+            "**Agregação Municipal**: médias calculadas por município (uma linha por município).\n\n"
+            "**AAS / Estratificada / Sistemática**: dados individuais amostrados da tabela "
+            "`ed_enem_2024_resultados` (N ≈ 3 M participantes com as 5 notas válidas)."
+        ),
     )
     st.markdown("---")
 
-    available_scores = [c for c in SCORE_COLS if c in df.columns]
-    available_props  = [c for c in PROPORTION_COLS if c in df.columns]
-
-    # --- Estatísticas descritivas ---
-    st.subheader("Estatísticas Descritivas das Médias Municipais")
-    stats_df = descriptive_stats(df, columns=available_scores)
-    stats_df_fmt = stats_df.apply(
-        lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
-    )
-    st.dataframe(stats_df_fmt, use_container_width=True)
-    st.markdown("---")
-
-    # ---- Histogramas ----
-    st.subheader("Histogramas")
-
-    all_quant_options = {score_label(c): c for c in available_scores + available_props}
-    sel_score_label = st.selectbox(
-        "Selecione a variável",
-        list(all_quant_options.keys()),
-        key="hist_select",
-    )
-    sel_score_col = all_quant_options[sel_score_label]
-
-    sel_test = st.selectbox(
-        "Teste de normalidade",
-        NORMALITY_TESTS,
-        key="norm_test_select",
-    )
-
-    _TEST_DESCRIPTIONS = {
-        "Shapiro-Wilk": (
-            "O **Shapiro-Wilk** avalia se uma amostra provém de uma população normalmente "
-            "distribuída calculando a correlação entre os dados ordenados e os quantis esperados "
-            "de uma normal. É considerado um dos testes mais poderosos para amostras pequenas "
-            "(n < 2 000), mas perde sensibilidade em amostras muito grandes."
-        ),
-        "Anderson-Darling": (
-            "O **Anderson-Darling** é uma versão aprimorada do teste de Kolmogorov-Smirnov que "
-            "atribui maior peso às caudas da distribuição. Por isso, é especialmente eficaz para "
-            "detectar desvios de normalidade nas regiões extremas dos dados. Retorna uma "
-            "estatística que é comparada a valores críticos tabelados para diferentes níveis de "
-            "significância."
-        ),
-        "D'Agostino-Pearson": (
-            "O **D'Agostino-Pearson** combina medidas de assimetria (*skewness*) e curtose "
-            "(*kurtosis*) em uma única estatística qui-quadrado com 2 graus de liberdade. É "
-            "robusto para amostras de tamanho moderado a grande e detecta bem desvios tanto na "
-            "forma simétrica quanto no achatamento da curva."
-        ),
-        "Jarque-Bera": (
-            "O **Jarque-Bera** também baseia sua estatística na assimetria e na curtose, mas usa "
-            "uma formulação ligeiramente diferente, sendo muito utilizado em econometria. É "
-            "assintoticamente distribuído como qui-quadrado com 2 graus de liberdade, portanto "
-            "funciona melhor com amostras grandes. Em amostras pequenas pode apresentar baixo "
-            "poder estatístico."
-        ),
-        "Kolmogorov-Smirnov": (
-            "O **Kolmogorov-Smirnov** (KS) mede a maior distância absoluta entre a função de "
-            "distribuição empírica da amostra e a distribuição normal teórica parametrizada pela "
-            "média e desvio-padrão observados. É um teste não-paramétrico de uso geral, embora "
-            "seja menos sensível nas caudas do que o Anderson-Darling."
-        ),
-    }
-
-    col_hist, col_info = st.columns([3, 1])
-
-    with col_hist:
-        hist_data = df[sel_score_col].dropna()
-        fig_hist = px.histogram(
-            hist_data,
-            nbins=50,
-            color_discrete_sequence=["#636EFA"],
-            labels={"value": sel_score_label, "count": "Municípios"},
-            title=f"Histograma – {sel_score_label} (distribuição municipal)",
+    if _quant_modo == "Agregação Municipal":
+        st.markdown(
+            "Histogramas, box plots e estatísticas descritivas das **médias municipais** "
+            "de notas do ENEM 2024. Cada observação representa um município."
         )
-        mean_val   = hist_data.mean()
-        median_val = hist_data.median()
-        fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red",
-                           annotation_text=f"Média: {_fmt_br(mean_val, 1)}",
-                           annotation_position="top right")
-        fig_hist.add_vline(x=median_val, line_dash="dot", line_color="green",
-                           annotation_text=f"Mediana: {_fmt_br(median_val, 1)}",
-                           annotation_position="top left")
-        fig_hist.update_layout(height=420, xaxis_title=sel_score_label,
-                                yaxis_title="Municípios")
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.markdown("---")
 
-    with col_info:
-        norm = normality_test(df, sel_score_col, test=sel_test)
-        st.markdown("**Teste de Normalidade**")
-        st.caption(_TEST_DESCRIPTIONS[sel_test])
-        st.markdown(f"- Teste: {norm['teste']}")
-        st.markdown(f"- Estatística: {_fmt_br(norm['estatística'], 4)}")
-        st.markdown(f"- p-valor: {_fmt_br(norm['p_valor'], 6)}")
-        resultado = "✅ Normal" if norm["normal"] else "❌ Não Normal"
-        st.markdown(f"- Resultado: {resultado}")
+        available_scores = [c for c in SCORE_COLS if c in df.columns]
+        available_props  = [c for c in PROPORTION_COLS if c in df.columns]
 
-        st.markdown("**Percentis**")
-        for pct in [10, 25, 50, 75, 90]:
-            st.markdown(f"- P{pct}: {_fmt_br(np.percentile(hist_data, pct), 1)}")
+        # --- Estatísticas descritivas ---
+        st.subheader("Estatísticas Descritivas das Médias Municipais")
+        stats_df = descriptive_stats(df, columns=available_scores)
+        stats_df_fmt = stats_df.apply(
+            lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+        )
+        st.dataframe(stats_df_fmt, use_container_width=True)
+        st.markdown("---")
 
-    st.markdown("---")
+        # ---- Histogramas ----
+        st.subheader("Histogramas")
 
-    # ---- Todos os histogramas de notas lado a lado ----
-    st.subheader("Todos os Histogramas de Notas")
-    cols = st.columns(len(available_scores))
-    for i, score_col in enumerate(available_scores):
-        with cols[i]:
-            data_col = df[score_col].dropna()
-            fig_mini = px.histogram(
-                data_col,
-                nbins=40,
-                title=score_label(score_col),
-                color_discrete_sequence=[PALETTE[i % len(PALETTE)]],
-                labels={"value": "Média Municipal"},
+        all_quant_options = {score_label(c): c for c in available_scores + available_props}
+        sel_score_label = st.selectbox(
+            "Selecione a variável",
+            list(all_quant_options.keys()),
+            key="hist_select",
+        )
+        sel_score_col = all_quant_options[sel_score_label]
+
+        sel_test = st.selectbox(
+            "Teste de normalidade",
+            NORMALITY_TESTS,
+            key="norm_test_select",
+        )
+
+        _TEST_DESCRIPTIONS = {
+            "Shapiro-Wilk": (
+                "O **Shapiro-Wilk** avalia se uma amostra provém de uma população normalmente "
+                "distribuída calculando a correlação entre os dados ordenados e os quantis esperados "
+                "de uma normal. É considerado um dos testes mais poderosos para amostras pequenas "
+                "(n < 2 000), mas perde sensibilidade em amostras muito grandes."
+            ),
+            "Anderson-Darling": (
+                "O **Anderson-Darling** é uma versão aprimorada do teste de Kolmogorov-Smirnov que "
+                "atribui maior peso às caudas da distribuição. Por isso, é especialmente eficaz para "
+                "detectar desvios de normalidade nas regiões extremas dos dados. Retorna uma "
+                "estatística que é comparada a valores críticos tabelados para diferentes níveis de "
+                "significância."
+            ),
+            "D'Agostino-Pearson": (
+                "O **D'Agostino-Pearson** combina medidas de assimetria (*skewness*) e curtose "
+                "(*kurtosis*) em uma única estatística qui-quadrado com 2 graus de liberdade. É "
+                "robusto para amostras de tamanho moderado a grande e detecta bem desvios tanto na "
+                "forma simétrica quanto no achatamento da curva."
+            ),
+            "Jarque-Bera": (
+                "O **Jarque-Bera** também baseia sua estatística na assimetria e na curtose, mas usa "
+                "uma formulação ligeiramente diferente, sendo muito utilizado em econometria. É "
+                "assintoticamente distribuído como qui-quadrado com 2 graus de liberdade, portanto "
+                "funciona melhor com amostras grandes. Em amostras pequenas pode apresentar baixo "
+                "poder estatístico."
+            ),
+            "Kolmogorov-Smirnov": (
+                "O **Kolmogorov-Smirnov** (KS) mede a maior distância absoluta entre a função de "
+                "distribuição empírica da amostra e a distribuição normal teórica parametrizada pela "
+                "média e desvio-padrão observados. É um teste não-paramétrico de uso geral, embora "
+                "seja menos sensível nas caudas do que o Anderson-Darling."
+            ),
+        }
+
+        col_hist, col_info = st.columns([3, 1])
+
+        with col_hist:
+            hist_data = df[sel_score_col].dropna()
+            fig_hist = px.histogram(
+                hist_data,
+                nbins=50,
+                color_discrete_sequence=["#636EFA"],
+                labels={"value": sel_score_label, "count": "Municípios"},
+                title=f"Histograma – {sel_score_label} (distribuição municipal)",
             )
-            fig_mini.update_layout(height=280, showlegend=False,
-                                   xaxis_title="Nota Média",
-                                   yaxis_title="Municípios",
-                                   margin=dict(l=20, r=10, t=50, b=30))
-            st.plotly_chart(fig_mini, use_container_width=True)
+            mean_val   = hist_data.mean()
+            median_val = hist_data.median()
+            fig_hist.add_vline(x=mean_val, line_dash="dash", line_color="red",
+                               annotation_text=f"Média: {_fmt_br(mean_val, 1)}",
+                               annotation_position="top right")
+            fig_hist.add_vline(x=median_val, line_dash="dot", line_color="green",
+                               annotation_text=f"Mediana: {_fmt_br(median_val, 1)}",
+                               annotation_position="top left")
+            fig_hist.update_layout(height=420, xaxis_title=sel_score_label,
+                                    yaxis_title="Municípios")
+            st.plotly_chart(fig_hist, use_container_width=True)
 
-    st.markdown("---")
+        with col_info:
+            norm = normality_test(df, sel_score_col, test=sel_test)
+            st.markdown("**Teste de Normalidade**")
+            st.caption(_TEST_DESCRIPTIONS[sel_test])
+            st.markdown(f"- Teste: {norm['teste']}")
+            st.markdown(f"- Estatística: {_fmt_br(norm['estatística'], 4)}")
+            st.markdown(f"- p-valor: {_fmt_br(norm['p_valor'], 6)}")
+            resultado = "✅ Normal" if norm["normal"] else "❌ Não Normal"
+            st.markdown(f"- Resultado: {resultado}")
 
-    # ---- Box Plot – todas as notas ----
-    st.subheader("Box Plots das Médias Municipais")
+            st.markdown("**Percentis**")
+            for pct in [10, 25, 50, 75, 90]:
+                st.markdown(f"- P{pct}: {_fmt_br(np.percentile(hist_data, pct), 1)}")
 
-    melt_df = df[available_scores].melt(var_name="Área", value_name="Nota Média").dropna()
-    melt_df["Área"] = melt_df["Área"].map(SCORE_LABELS)
+        st.markdown("---")
 
-    fig_box = px.box(
-        melt_df,
-        x="Área",
-        y="Nota Média",
-        color="Área",
-        color_discrete_sequence=PALETTE,
-        points=False,
-        title="Box Plot – Médias Municipais por Área de Conhecimento",
-    )
-    fig_box.update_layout(height=480, showlegend=False,
-                          xaxis_title="Área", yaxis_title="Nota Média Municipal")
-    st.plotly_chart(fig_box, use_container_width=True)
+        # ---- Todos os histogramas de notas lado a lado ----
+        st.subheader("Todos os Histogramas de Notas")
+        cols = st.columns(len(available_scores))
+        for i, score_col in enumerate(available_scores):
+            with cols[i]:
+                data_col = df[score_col].dropna()
+                fig_mini = px.histogram(
+                    data_col,
+                    nbins=40,
+                    title=score_label(score_col),
+                    color_discrete_sequence=[PALETTE[i % len(PALETTE)]],
+                    labels={"value": "Média Municipal"},
+                )
+                fig_mini.update_layout(height=280, showlegend=False,
+                                       xaxis_title="Nota Média",
+                                       yaxis_title="Municípios",
+                                       margin=dict(l=20, r=10, t=50, b=30))
+                st.plotly_chart(fig_mini, use_container_width=True)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # ---- Box plot por UF ----
-    st.subheader("Box Plot por UF")
-    score_opt_box = {score_label(c): c for c in available_scores}
-    sel_score_box_lbl = st.selectbox("Área de conhecimento", list(score_opt_box.keys()),
-                                      key="box_score_sel")
-    sel_score_box_col = score_opt_box[sel_score_box_lbl]
+        # ---- Box Plot – todas as notas ----
+        st.subheader("Box Plots das Médias Municipais")
 
-    fig_box_uf = px.box(
-        df_full.dropna(subset=[sel_score_box_col, "uf"]),
-        x="uf",
-        y=sel_score_box_col,
-        color="uf",
-        color_discrete_sequence=PALETTE,
-        points=False,
-        title=f"{sel_score_box_lbl} – distribuição municipal por UF",
-    )
-    fig_box_uf.update_layout(height=500, showlegend=False,
-                              xaxis_title="UF",
-                              yaxis_title="Nota Média Municipal")
-    st.plotly_chart(fig_box_uf, use_container_width=True)
+        melt_df = df[available_scores].melt(var_name="Área", value_name="Nota Média").dropna()
+        melt_df["Área"] = melt_df["Área"].map(SCORE_LABELS)
 
-    with st.expander(f"📋 Médias ponderadas de {sel_score_box_lbl} por UF"):
-        grp_table = mean_scores_by_group(df_full, sel_score_box_col, "uf")
-        grp_table_fmt = grp_table.copy()
-        grp_table_fmt["Média Ponderada"] = grp_table_fmt["Média Ponderada"].apply(
-            lambda v: _fmt_br(v, 2) if pd.notna(v) else "–"
+        fig_box = px.box(
+            melt_df,
+            x="Área",
+            y="Nota Média",
+            color="Área",
+            color_discrete_sequence=PALETTE,
+            points=False,
+            title="Box Plot – Médias Municipais por Área de Conhecimento",
         )
-        st.dataframe(grp_table_fmt, use_container_width=True, hide_index=True)
+        fig_box.update_layout(height=480, showlegend=False,
+                              xaxis_title="Área", yaxis_title="Nota Média Municipal")
+        st.plotly_chart(fig_box, use_container_width=True)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # ---- Médias ponderadas por UF (barras) ----
-    st.subheader("Médias Ponderadas por UF")
-    score_opt_grp = {score_label(c): c for c in available_scores}
-    sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="quant_uf_score")
-    sel_grp_col   = score_opt_grp[sel_grp_score]
+        # ---- Box plot por UF ----
+        st.subheader("Box Plot por UF")
+        score_opt_box = {score_label(c): c for c in available_scores}
+        sel_score_box_lbl = st.selectbox("Área de conhecimento", list(score_opt_box.keys()),
+                                          key="box_score_sel")
+        sel_score_box_col = score_opt_box[sel_score_box_lbl]
 
-    grp_means = mean_scores_by_group(df_full, sel_grp_col, "uf")
+        fig_box_uf = px.box(
+            df_full.dropna(subset=[sel_score_box_col, "uf"]),
+            x="uf",
+            y=sel_score_box_col,
+            color="uf",
+            color_discrete_sequence=PALETTE,
+            points=False,
+            title=f"{sel_score_box_lbl} – distribuição municipal por UF",
+        )
+        fig_box_uf.update_layout(height=500, showlegend=False,
+                                  xaxis_title="UF",
+                                  yaxis_title="Nota Média Municipal")
+        st.plotly_chart(fig_box_uf, use_container_width=True)
 
-    fig_grp = px.bar(
-        grp_means,
-        x="Categoria",
-        y="Média Ponderada",
-        color="Média Ponderada",
-        color_continuous_scale="Tealrose",
-        text=[_fmt_br(v, 1) for v in grp_means["Média Ponderada"]],
-        title=f"Média Ponderada de {sel_grp_score} por UF",
-    )
-    fig_grp.update_traces(texttemplate="%{text}", textposition="outside")
-    fig_grp.update_layout(height=450, showlegend=False,
-                           coloraxis_showscale=False,
-                           xaxis_title="UF", yaxis_title="Nota Média Ponderada",
-                           yaxis_range=[300, 600])
-    st.plotly_chart(fig_grp, use_container_width=True)
+        with st.expander(f"📋 Médias ponderadas de {sel_score_box_lbl} por UF"):
+            grp_table = mean_scores_by_group(df_full, sel_score_box_col, "uf")
+            grp_table_fmt = grp_table.copy()
+            grp_table_fmt["Média Ponderada"] = grp_table_fmt["Média Ponderada"].apply(
+                lambda v: _fmt_br(v, 2) if pd.notna(v) else "–"
+            )
+            st.dataframe(grp_table_fmt, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # ---- Médias ponderadas por UF (barras) ----
+        st.subheader("Médias Ponderadas por UF")
+        score_opt_grp = {score_label(c): c for c in available_scores}
+        sel_grp_score = st.selectbox("Nota", list(score_opt_grp.keys()), key="quant_uf_score")
+        sel_grp_col   = score_opt_grp[sel_grp_score]
+
+        grp_means = mean_scores_by_group(df_full, sel_grp_col, "uf")
+
+        fig_grp = px.bar(
+            grp_means,
+            x="Categoria",
+            y="Média Ponderada",
+            color="Média Ponderada",
+            color_continuous_scale="Tealrose",
+            text=[_fmt_br(v, 1) for v in grp_means["Média Ponderada"]],
+            title=f"Média Ponderada de {sel_grp_score} por UF",
+        )
+        fig_grp.update_traces(texttemplate="%{text}", textposition="outside")
+        fig_grp.update_layout(height=450, showlegend=False,
+                               coloraxis_showscale=False,
+                               xaxis_title="UF", yaxis_title="Nota Média Ponderada",
+                               yaxis_range=[300, 600])
+        st.plotly_chart(fig_grp, use_container_width=True)
+
+    else:
+        # ---- Modo amostragem ----
+        _QUANT_SAMPLE_MAP = {
+            "AAS – Amostragem Aleatória Simples": "aas_res",
+            "Estratificada (por município)":      "estratificada_res",
+            "Sistemática":                        "sistematica_res",
+        }
+        _quant_sample_key = _QUANT_SAMPLE_MAP[_quant_modo]
+
+        try:
+            _qt_sampling = get_sampling_data(_db_config)
+        except Exception as _exc:
+            st.error(f"Erro ao carregar dados de amostragem: {_exc}")
+            st.stop()
+
+        _df_qt      = _qt_sampling[_quant_sample_key]
+        _mom_res_qt = _qt_sampling["momentos_res"]
+        _n_res_qt   = _qt_sampling["n_amostra_res"]
+
+        st.markdown(
+            f"Dados individuais amostrados da tabela **`ed_enem_2024_resultados`** "
+            f"(N = {_fmt_br(_mom_res_qt['N'])} participantes com as 5 notas válidas) "
+            f"pelo método **{_quant_modo}**."
+        )
+
+        if _df_qt.empty:
+            st.warning("A amostra está vazia. Verifique os dados no banco.")
+            st.stop()
+
+        st.markdown(f"**n (amostra) = {_fmt_br(len(_df_qt))}**")
+        st.markdown("---")
+
+        _SCORE_AREA_COLS_QT = {
+            "nota_cn":      "Ciências da Natureza",
+            "nota_ch":      "Ciências Humanas",
+            "nota_lc":      "Linguagens",
+            "nota_mt":      "Matemática",
+            "nota_redacao": "Redação",
+            "nota_media":   "Nota Média",
+        }
+        _avail_qt = [c for c in _SCORE_AREA_COLS_QT if c in _df_qt.columns]
+
+        # ---- Estatísticas descritivas da amostra ----
+        st.subheader("Estatísticas Descritivas da Amostra")
+        _qt_stats_rows = []
+        for _c in _avail_qt:
+            _v = _df_qt[_c].dropna()
+            _qt_stats_rows.append({
+                "Variável":       _SCORE_AREA_COLS_QT[_c],
+                "n":              _fmt_br(len(_v)),
+                "Média (x̄)":     _fmt_br(float(_v.mean()), 2),
+                "Desvio Padrão": _fmt_br(float(_v.std()), 2),
+                "Mínimo":        _fmt_br(float(_v.min()), 2),
+                "Máximo":        _fmt_br(float(_v.max()), 2),
+            })
+        if _qt_stats_rows:
+            st.dataframe(pd.DataFrame(_qt_stats_rows), use_container_width=True, hide_index=True)
+
+        # Show comparison for nota_media vs population
+        if "nota_media" in _df_qt.columns:
+            _qtv = _df_qt["nota_media"].dropna()
+            _qt_cmp = pd.DataFrame([
+                {"Estatística": "N / n",        "População": _fmt_br(_mom_res_qt["N"]),                  "Amostra": _fmt_br(len(_qtv))},
+                {"Estatística": "Média",        "População": _fmt_br(_mom_res_qt["media"], 4),           "Amostra": _fmt_br(float(_qtv.mean()), 4)},
+                {"Estatística": "Desvio Padrão","População": _fmt_br(_mom_res_qt["desvio_padrao"], 4),   "Amostra": _fmt_br(float(_qtv.std()), 4)},
+                {"Estatística": "Mínimo",       "População": _fmt_br(_mom_res_qt["minimo"], 2),          "Amostra": _fmt_br(float(_qtv.min()), 2)},
+                {"Estatística": "Máximo",       "População": _fmt_br(_mom_res_qt["maximo"], 2),          "Amostra": _fmt_br(float(_qtv.max()), 2)},
+            ])
+            st.markdown("**Comparação Amostra × População (Nota Média)**")
+            st.dataframe(_qt_cmp, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # ---- Seletor de variável + histograma ----
+        st.subheader("Histogramas")
+        _qt_var_opts = {_SCORE_AREA_COLS_QT[c]: c for c in _avail_qt}
+        _qt_sel_lbl = st.selectbox("Selecione a variável", list(_qt_var_opts.keys()), key="qt_hist_sel")
+        _qt_sel_col = _qt_var_opts[_qt_sel_lbl]
+
+        _qt_data = _df_qt[_qt_sel_col].dropna()
+        _qt_mean = float(_qt_data.mean())
+        _fig_qt  = px.histogram(
+            _qt_data, nbins=50,
+            title=f"Histograma – {_qt_sel_lbl} ({_quant_modo})",
+            labels={"value": _qt_sel_lbl, "count": "Participantes"},
+            color_discrete_sequence=["#636EFA"],
+        )
+        _fig_qt.add_vline(x=_qt_mean, line_dash="dash", line_color="blue",
+                          annotation_text=f"x̄ = {_fmt_br(_qt_mean, 1)}",
+                          annotation_position="top right")
+        if _qt_sel_col == "nota_media":
+            _fig_qt.add_vline(x=_mom_res_qt["media"], line_dash="dot", line_color="red",
+                              annotation_text=f"μ pop. = {_fmt_br(_mom_res_qt['media'], 1)}",
+                              annotation_position="top left")
+        _fig_qt.update_layout(height=420, xaxis_title=_qt_sel_lbl, yaxis_title="Participantes")
+        st.plotly_chart(_fig_qt, use_container_width=True)
+
+        st.markdown("---")
+
+        # ---- Todos os histogramas lado a lado ----
+        st.subheader("Todos os Histogramas de Notas")
+        _all_note_cols = [c for c in _avail_qt if c != "nota_media"]
+        if _all_note_cols:
+            _qt_cols = st.columns(len(_all_note_cols))
+            for _i, _c in enumerate(_all_note_cols):
+                with _qt_cols[_i]:
+                    _d = _df_qt[_c].dropna()
+                    _f = px.histogram(
+                        _d, nbins=40,
+                        title=_SCORE_AREA_COLS_QT[_c],
+                        color_discrete_sequence=[PALETTE[_i % len(PALETTE)]],
+                        labels={"value": "Nota"},
+                    )
+                    _f.update_layout(height=280, showlegend=False,
+                                     xaxis_title="Nota", yaxis_title="Participantes",
+                                     margin=dict(l=20, r=10, t=50, b=30))
+                    st.plotly_chart(_f, use_container_width=True)
+
+        st.markdown("---")
+
+        # ---- Box Plots ----
+        st.subheader("Box Plots das Notas")
+        if _all_note_cols:
+            _melt_qt = _df_qt[_all_note_cols].melt(var_name="Área", value_name="Nota").dropna()
+            _melt_qt["Área"] = _melt_qt["Área"].map(_SCORE_AREA_COLS_QT)
+            _fig_box_qt = px.box(
+                _melt_qt, x="Área", y="Nota", color="Área",
+                color_discrete_sequence=PALETTE, points=False,
+                title=f"Box Plot – Notas por Área ({_quant_modo})",
+            )
+            _fig_box_qt.update_layout(height=460, showlegend=False,
+                                       xaxis_title="Área", yaxis_title="Nota")
+            st.plotly_chart(_fig_box_qt, use_container_width=True)
 
 
 # ===========================================================================
@@ -901,13 +1215,6 @@ elif page == "🔬 Amostragem":
 
     # ---- 1. Parâmetros Populacionais ----
     st.subheader("1. Parâmetros Populacionais")
-    st.markdown(
-        "As duas tabelas possuem populações distintas: "
-        f"`ed_enem_2024_participantes` tem **N = {_fmt_br(mom_part['N'])} inscritos** "
-        "(todos, incluindo ausentes), enquanto "
-        f"`ed_enem_2024_resultados` tem **N = {_fmt_br(mom_res['N'])} participantes** "
-        "com as 5 notas válidas. Essa diferença explica o N menor exibido anteriormente."
-    )
 
     _pop_col_part, _pop_col_res = st.columns(2)
 
@@ -966,7 +1273,7 @@ elif page == "🔬 Amostragem":
             f"|-----------|-------|\n"
             f"| Nível de confiança | 95 % |\n"
             f"| Z | {_fmt_br(Z, 2)} |\n"
-            f"| Erro amostral (E) | {_fmt_br(E_part, 1)} ano |\n"
+            f"| Erro amostral (E) | {_fmt_br(E_part, 1)} {'ano' if E_part < 2 else 'anos'} |\n"
             f"| Desvio padrão (σ) | {_fmt_br(mom_part['desvio_padrao'], 2)} |\n"
             f"| N | {_fmt_br(mom_part['N'])} |\n\n"
             f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0_part, 1)}\n\n"
@@ -1249,13 +1556,9 @@ elif page == "🔬 Amostragem":
         )
         _class_comparison_table(df_s, "cor_raca", df_cor_raca_pop, "cor_raca", "pop_count")
 
-        # Class comparison: sexo vs population
+        # Class comparison: sexo vs population (table only)
         if "sexo" in df_s.columns:
             st.markdown("**Comparação por Sexo: Amostra × População**")
-            _class_comparison_chart(
-                df_s, "sexo", df_sexo_pop, "sexo", "pop_count",
-                f"Proporção por Sexo – {label} vs. População",
-            )
             _class_comparison_table(df_s, "sexo", df_sexo_pop, "sexo", "pop_count")
 
     # ---------- outer tabs: one per table ----------
