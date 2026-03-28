@@ -633,6 +633,41 @@ elif page == "📊 Variáveis Qualitativas":
 
         st.markdown("---")
 
+        # ---- Distribuição por UF (derivada do código do município) ----
+        st.subheader("🔹 Distribuição da Amostra por UF")
+        if "municipio" in _df_q.columns:
+            _uf_map = df_full[["cod_7", "uf"]].drop_duplicates().rename(columns={"cod_7": "municipio"})
+            _df_q_uf = _df_q.merge(_uf_map, on="municipio", how="left")
+            _uf_counts = _df_q_uf["uf"].fillna("N/A").value_counts().reset_index()
+            _uf_counts.columns = ["UF", "n"]
+            _uf_counts["% amostra"] = (_uf_counts["n"] / _uf_counts["n"].sum() * 100).round(2)
+            _uf_counts = _uf_counts.sort_values("UF")
+
+            _uf_col_chart, _uf_col_tab = st.columns([2, 1])
+            with _uf_col_chart:
+                _fig_uf_q = px.bar(
+                    _uf_counts, x="UF", y="n",
+                    color="n", color_continuous_scale="Blues",
+                    text=[_fmt_br(v) for v in _uf_counts["n"]],
+                    title=f"Distribuição da Amostra por UF ({_qual_modo})",
+                    labels={"UF": "UF", "n": "Inscritos (amostra)"},
+                )
+                _fig_uf_q.update_traces(texttemplate="%{text}", textposition="outside")
+                _fig_uf_q.update_layout(height=400, showlegend=False,
+                                         coloraxis_showscale=False,
+                                         xaxis_title="UF", yaxis_title="Inscritos (amostra)")
+                st.plotly_chart(_fig_uf_q, use_container_width=True)
+            with _uf_col_tab:
+                st.markdown("**Tabela por UF**")
+                st.dataframe(
+                    _uf_counts.rename(columns={"n": "Amostra (n)", "% amostra": "Amostra (%)"}),
+                    use_container_width=True, hide_index=True,
+                )
+        else:
+            st.info("Coluna `municipio` não disponível na amostra.")
+
+        st.markdown("---")
+
         # ---- Distribuição de Idade ----
         st.subheader("🔹 Distribuição de Idade")
         if "idade" in _df_q.columns:
@@ -1021,6 +1056,27 @@ elif page == "📈 Variáveis Quantitativas":
                                        xaxis_title="Área", yaxis_title="Nota")
             st.plotly_chart(_fig_box_qt, use_container_width=True)
 
+        st.markdown("---")
+
+        # ---- Box Plot por UF ----
+        if "uf" in _df_qt.columns:
+            st.subheader("Box Plot por UF")
+            _qt_uf_area_opts = {_SCORE_AREA_COLS_QT[c]: c for c in _avail_qt if c != "nota_media"}
+            _qt_uf_lbl = st.selectbox(
+                "Área de conhecimento", list(_qt_uf_area_opts.keys()), key="qt_box_uf_sel"
+            )
+            _qt_uf_col = _qt_uf_area_opts[_qt_uf_lbl]
+            _fig_box_uf_qt = px.box(
+                _df_qt.dropna(subset=[_qt_uf_col, "uf"]),
+                x="uf", y=_qt_uf_col, color="uf",
+                color_discrete_sequence=PALETTE, points=False,
+                title=f"{_qt_uf_lbl} – distribuição por UF ({_quant_modo})",
+                labels={"uf": "UF", _qt_uf_col: "Nota"},
+            )
+            _fig_box_uf_qt.update_layout(height=500, showlegend=False,
+                                          xaxis_title="UF", yaxis_title="Nota")
+            st.plotly_chart(_fig_box_uf_qt, use_container_width=True)
+
 
 # ===========================================================================
 # PÁGINA 4 – ANÁLISE DE CORRELAÇÃO
@@ -1028,170 +1084,367 @@ elif page == "📈 Variáveis Quantitativas":
 
 elif page == "🔗 Análise de Correlação":
     st.title("🔗 Análise de Correlação")
-    st.markdown(
-        "Correlação entre as médias municipais de notas e os indicadores "
-        "socioeconômicos e demográficos."
+
+    _CORR_MODO_OPTS = [
+        "Agregação Municipal",
+        "AAS – Amostragem Aleatória Simples",
+        "Estratificada (por UF)",
+        "Sistemática",
+    ]
+    _corr_modo = st.selectbox(
+        "Modo de visualização",
+        _CORR_MODO_OPTS,
+        key="corr_modo_sel",
+        help=(
+            "**Agregação Municipal**: correlações calculadas sobre as médias municipais "
+            "(dados agregados, inclui indicadores socioeconômicos).\n\n"
+            "**AAS / Estratificada / Sistemática**: correlações entre notas calculadas "
+            "sobre dados individuais amostrados da tabela `ed_enem_2024_resultados`."
+        ),
     )
     st.markdown("---")
-
-    available_scores = [c for c in SCORE_COLS if c in df.columns]
-    available_props  = [c for c in PROPORTION_COLS if c in df.columns]
-    all_num_cols     = available_scores + available_props
-
-    # ---- Heatmap ----
-    st.subheader("Matriz de Correlação (Heatmap)")
 
     method = st.selectbox(
         "Método de correlação",
         ["pearson", "spearman", "kendall"],
         format_func=lambda m: m.capitalize(),
+        key="corr_method_sel",
     )
 
-    heatmap_cols = [c for c in HEATMAP_COLS if c in df.columns]
-    corr_df      = correlation_matrix(df, columns=heatmap_cols, method=method)
-
-    corr_values = corr_df.values.tolist()
-    labels      = corr_df.columns.tolist()
-
-    fig_heat = ff.create_annotated_heatmap(
-        z=corr_values,
-        x=labels,
-        y=labels,
-        colorscale="RdBu",
-        reversescale=True,
-        zmin=-1,
-        zmax=1,
-        annotation_text=[[_fmt_br(v, 2) for v in row] for row in corr_values],
-        showscale=True,
-    )
-    fig_heat.update_layout(
-        height=max(500, len(labels) * 45),
-        title=f"Correlação de {method.capitalize()} entre notas e indicadores municipais",
-        xaxis=dict(side="bottom"),
-    )
-    st.plotly_chart(fig_heat, use_container_width=True)
-
-    with st.expander("📋 Ver tabela da matriz de correlação"):
-        corr_df_fmt = corr_df.apply(
-            lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+    if _corr_modo == "Agregação Municipal":
+        st.markdown(
+            "Correlação entre as médias municipais de notas e os indicadores "
+            "socioeconômicos e demográficos."
         )
-        st.dataframe(corr_df_fmt, use_container_width=True)
+        st.markdown("---")
 
-    st.markdown("---")
+        available_scores = [c for c in SCORE_COLS if c in df.columns]
+        available_props  = [c for c in PROPORTION_COLS if c in df.columns]
 
-    # ---- Scatter matrix de notas ----
-    st.subheader("Scatter Matrix das Notas")
-    st.markdown(
-        "_Distribuição par a par das médias municipais de notas. "
-        "Colorida por UF. Usa amostra de até 2000 municípios para performance._"
-    )
+        # ---- Heatmap ----
+        st.subheader("Matriz de Correlação (Heatmap)")
 
-    score_options_multi = {score_label(c): c for c in available_scores}
-    sel_pair_labels = st.multiselect(
-        "Áreas de conhecimento",
-        list(score_options_multi.keys()),
-        default=list(score_options_multi.keys()),
-    )
+        heatmap_cols = [c for c in HEATMAP_COLS if c in df.columns]
+        corr_df      = correlation_matrix(df, columns=heatmap_cols, method=method)
 
-    if len(sel_pair_labels) >= 2:
-        sel_pair_cols = [score_options_multi[lbl] for lbl in sel_pair_labels]
-        sample_df     = df[sel_pair_cols + ["uf"]].dropna().sample(
-            min(2000, len(df)), random_state=42
+        corr_values = corr_df.values.tolist()
+        labels      = corr_df.columns.tolist()
+
+        fig_heat = ff.create_annotated_heatmap(
+            z=corr_values,
+            x=labels,
+            y=labels,
+            colorscale="RdBu",
+            reversescale=True,
+            zmin=-1,
+            zmax=1,
+            annotation_text=[[_fmt_br(v, 2) for v in row] for row in corr_values],
+            showscale=True,
         )
-        renamed = {c: score_label(c) for c in sel_pair_cols}
-        sample_df = sample_df.rename(columns=renamed)
-
-        fig_scatter = px.scatter_matrix(
-            sample_df,
-            dimensions=list(renamed.values()),
-            color="uf",
-            color_discrete_sequence=PALETTE,
-            title="Scatter Matrix das Médias Municipais de Notas (por UF)",
-            opacity=0.5,
+        fig_heat.update_layout(
+            height=max(500, len(labels) * 45),
+            title=f"Correlação de {method.capitalize()} entre notas e indicadores municipais",
+            xaxis=dict(side="bottom"),
         )
-        fig_scatter.update_traces(marker=dict(size=3))
-        fig_scatter.update_layout(height=700)
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_heat, use_container_width=True)
 
-        # Correlation table for selected variables
-        pair_corr = df[sel_pair_cols].corr(method=method).round(4)
-        pair_corr = pair_corr.rename(index=renamed, columns=renamed)
-        with st.expander("📋 Tabela de Correlação entre as variáveis selecionadas"):
-            pair_corr_fmt = pair_corr.apply(
+        with st.expander("📋 Ver tabela da matriz de correlação"):
+            corr_df_fmt = corr_df.apply(
                 lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
             )
-            st.dataframe(pair_corr_fmt, use_container_width=True)
-    else:
-        st.info("Selecione pelo menos 2 áreas de conhecimento para exibir o gráfico.")
+            st.dataframe(corr_df_fmt, use_container_width=True)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # ---- Scatter indicador × nota ----
-    st.subheader("Dispersão: Indicador Demográfico × Nota")
-    st.markdown(
-        "Visualize a relação entre um indicador socioeconômico/demográfico "
-        "e a média de uma área de conhecimento por município."
-    )
-
-    prop_options  = {PROPORTION_LABELS.get(c, c): c for c in available_props}
-    score_options = {score_label(c): c for c in available_scores}
-
-    if prop_options and score_options:
-        col_sc1, col_sc2 = st.columns(2)
-        sel_x_lbl = col_sc1.selectbox("Indicador (eixo X)", list(prop_options.keys()),
-                                       key="sc_x")
-        sel_y_lbl = col_sc2.selectbox("Nota (eixo Y)", list(score_options.keys()),
-                                       key="sc_y")
-        sel_x_col = prop_options[sel_x_lbl]
-        sel_y_col = score_options[sel_y_lbl]
-
-        scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna().copy()
-        # Pre-format values for hover labels (Brazilian number format)
-        scatter_df["_x_fmt"]   = scatter_df[sel_x_col].apply(lambda v: _fmt_br(v, 3))
-        scatter_df["_y_fmt"]   = scatter_df[sel_y_col].apply(lambda v: _fmt_br(v, 1))
-        scatter_df["_ins_fmt"] = scatter_df["total_inscritos"].apply(_fmt_br)
-        # Add OLS trend line without requiring statsmodels
-        x_vals    = scatter_df[sel_x_col].values
-        y_vals    = scatter_df[sel_y_col].values
-        poly_coef = np.polyfit(x_vals, y_vals, 1)
-        x_range   = np.linspace(x_vals.min(), x_vals.max(), 200)
-        fig_sc = go.Figure()
-        fig_sc.add_scatter(
-            x=scatter_df[sel_x_col],
-            y=scatter_df[sel_y_col],
-            mode="markers",
-            marker=dict(color="#636EFA", size=4, opacity=0.45),
-            customdata=scatter_df[["municipio", "total_inscritos", "_x_fmt", "_y_fmt", "_ins_fmt"]].values,
-            hovertemplate=(
-                "<b>%{customdata[0]}</b><br>"
-                + f"{sel_x_lbl}: " + "%{customdata[2]}<br>"
-                + f"{sel_y_lbl}: " + "%{customdata[3]}<br>"
-                "Inscritos: %{customdata[4]}<extra></extra>"
-            ),
-            name="Municípios",
-            showlegend=False,
-        )
-        fig_sc.add_scatter(
-            x=x_range, y=np.polyval(poly_coef, x_range),
-            mode="lines", line=dict(color="black", width=2, dash="dash"),
-            name="Tendência (OLS)", showlegend=False,
-        )
-        fig_sc.update_layout(
-            title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
-            xaxis_title=sel_x_lbl,
-            yaxis_title=sel_y_lbl,
-            height=520,
-        )
-        st.plotly_chart(fig_sc, use_container_width=True)
-
-        # Correlação pontual
-        corr_val = scatter_df[[sel_x_col, sel_y_col]].corr(method=method).iloc[0, 1]
+        # ---- Scatter matrix de notas ----
+        st.subheader("Scatter Matrix das Notas")
         st.markdown(
-            f"**Correlação de {method.capitalize()} entre "
-            f"_{sel_x_lbl}_ e _{sel_y_lbl}_: `{_fmt_br(corr_val, 4)}`**"
+            "_Distribuição par a par das médias municipais de notas. "
+            "Colorida por UF. Usa amostra de até 2000 municípios para performance._"
         )
+
+        score_options_multi = {score_label(c): c for c in available_scores}
+        sel_pair_labels = st.multiselect(
+            "Áreas de conhecimento",
+            list(score_options_multi.keys()),
+            default=list(score_options_multi.keys()),
+            key="corr_agg_pair_sel",
+        )
+
+        if len(sel_pair_labels) >= 2:
+            sel_pair_cols = [score_options_multi[lbl] for lbl in sel_pair_labels]
+            sample_df     = df[sel_pair_cols + ["uf"]].dropna().sample(
+                min(2000, len(df)), random_state=42
+            )
+            renamed = {c: score_label(c) for c in sel_pair_cols}
+            sample_df = sample_df.rename(columns=renamed)
+
+            fig_scatter = px.scatter_matrix(
+                sample_df,
+                dimensions=list(renamed.values()),
+                color="uf",
+                color_discrete_sequence=PALETTE,
+                title="Scatter Matrix das Médias Municipais de Notas (por UF)",
+                opacity=0.5,
+            )
+            fig_scatter.update_traces(marker=dict(size=3))
+            fig_scatter.update_layout(height=700)
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+            pair_corr = df[sel_pair_cols].corr(method=method).round(4)
+            pair_corr = pair_corr.rename(index=renamed, columns=renamed)
+            with st.expander("📋 Tabela de Correlação entre as variáveis selecionadas"):
+                pair_corr_fmt = pair_corr.apply(
+                    lambda col: col.apply(lambda v: _fmt_br(v, 4) if pd.notna(v) else "–")
+                )
+                st.dataframe(pair_corr_fmt, use_container_width=True)
+        else:
+            st.info("Selecione pelo menos 2 áreas de conhecimento para exibir o gráfico.")
+
+        st.markdown("---")
+
+        # ---- Scatter indicador × nota ----
+        st.subheader("Dispersão: Indicador Demográfico × Nota")
+        st.markdown(
+            "Visualize a relação entre um indicador socioeconômico/demográfico "
+            "e a média de uma área de conhecimento por município."
+        )
+
+        prop_options  = {PROPORTION_LABELS.get(c, c): c for c in available_props}
+        score_options = {score_label(c): c for c in available_scores}
+
+        if prop_options and score_options:
+            col_sc1, col_sc2 = st.columns(2)
+            sel_x_lbl = col_sc1.selectbox("Indicador (eixo X)", list(prop_options.keys()),
+                                           key="sc_x")
+            sel_y_lbl = col_sc2.selectbox("Nota (eixo Y)", list(score_options.keys()),
+                                           key="sc_y")
+            sel_x_col = prop_options[sel_x_lbl]
+            sel_y_col = score_options[sel_y_lbl]
+
+            scatter_df = df[[sel_x_col, sel_y_col, "municipio", "total_inscritos"]].dropna().copy()
+            scatter_df["_x_fmt"]   = scatter_df[sel_x_col].apply(lambda v: _fmt_br(v, 3))
+            scatter_df["_y_fmt"]   = scatter_df[sel_y_col].apply(lambda v: _fmt_br(v, 1))
+            scatter_df["_ins_fmt"] = scatter_df["total_inscritos"].apply(_fmt_br)
+            x_vals    = scatter_df[sel_x_col].values
+            y_vals    = scatter_df[sel_y_col].values
+            poly_coef = np.polyfit(x_vals, y_vals, 1)
+            x_range   = np.linspace(x_vals.min(), x_vals.max(), 200)
+            fig_sc = go.Figure()
+            fig_sc.add_scatter(
+                x=scatter_df[sel_x_col],
+                y=scatter_df[sel_y_col],
+                mode="markers",
+                marker=dict(color="#636EFA", size=4, opacity=0.45),
+                customdata=scatter_df[["municipio", "total_inscritos", "_x_fmt", "_y_fmt", "_ins_fmt"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    + f"{sel_x_lbl}: " + "%{customdata[2]}<br>"
+                    + f"{sel_y_lbl}: " + "%{customdata[3]}<br>"
+                    "Inscritos: %{customdata[4]}<extra></extra>"
+                ),
+                name="Municípios",
+                showlegend=False,
+            )
+            fig_sc.add_scatter(
+                x=x_range, y=np.polyval(poly_coef, x_range),
+                mode="lines", line=dict(color="black", width=2, dash="dash"),
+                name="Tendência (OLS)", showlegend=False,
+            )
+            fig_sc.update_layout(
+                title=f"{sel_y_lbl} × {sel_x_lbl} (por município)",
+                xaxis_title=sel_x_lbl,
+                yaxis_title=sel_y_lbl,
+                height=520,
+            )
+            st.plotly_chart(fig_sc, use_container_width=True)
+
+            corr_val = scatter_df[[sel_x_col, sel_y_col]].corr(method=method).iloc[0, 1]
+            st.markdown(
+                f"**Correlação de {method.capitalize()} entre "
+                f"_{sel_x_lbl}_ e _{sel_y_lbl}_: `{_fmt_br(corr_val, 4)}`**"
+            )
+        else:
+            st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
+
     else:
-        st.info("Colunas de proporção não disponíveis. Verifique se os dados foram carregados corretamente.")
+        # ---- Modo amostragem ----
+        _CORR_SAMPLE_MAP = {
+            "AAS – Amostragem Aleatória Simples": "aas_res",
+            "Estratificada (por UF)":             "estratificada_res",
+            "Sistemática":                        "sistematica_res",
+        }
+        _corr_sample_key = _CORR_SAMPLE_MAP[_corr_modo]
+
+        try:
+            _corr_sampling = get_sampling_data(_db_config)
+        except Exception as _exc:
+            st.error(f"Erro ao carregar dados de amostragem: {_exc}")
+            st.stop()
+
+        _df_corr     = _corr_sampling[_corr_sample_key]
+        _mom_res_c   = _corr_sampling["momentos_res"]
+
+        st.markdown(
+            f"Dados individuais amostrados da tabela **`ed_enem_2024_resultados`** "
+            f"(N = {_fmt_br(_mom_res_c['N'])} participantes com as 5 notas válidas) "
+            f"pelo método **{_corr_modo}**. Correlações calculadas entre as notas individuais."
+        )
+
+        if _df_corr.empty:
+            st.warning("A amostra está vazia. Verifique os dados no banco.")
+            st.stop()
+
+        st.markdown(f"**n (amostra) = {_fmt_br(len(_df_corr))}**")
+        st.markdown("---")
+
+        _CORR_SCORE_COLS = {
+            "nota_cn":      "Ciências da Natureza",
+            "nota_ch":      "Ciências Humanas",
+            "nota_lc":      "Linguagens",
+            "nota_mt":      "Matemática",
+            "nota_redacao": "Redação",
+            "nota_media":   "Nota Média",
+        }
+        _avail_corr = [c for c in _CORR_SCORE_COLS if c in _df_corr.columns]
+
+        # ---- Heatmap ----
+        st.subheader("Matriz de Correlação (Heatmap)")
+        if len(_avail_corr) >= 2:
+            _corr_mat = _df_corr[_avail_corr].corr(method=method)
+            _corr_mat.index   = [_CORR_SCORE_COLS[c] for c in _avail_corr]
+            _corr_mat.columns = [_CORR_SCORE_COLS[c] for c in _avail_corr]
+
+            _cv = _corr_mat.values.tolist()
+            _lb = _corr_mat.columns.tolist()
+            _fig_ch = ff.create_annotated_heatmap(
+                z=_cv, x=_lb, y=_lb,
+                colorscale="RdBu", reversescale=True, zmin=-1, zmax=1,
+                annotation_text=[[_fmt_br(v, 2) for v in row] for row in _cv],
+                showscale=True,
+            )
+            _fig_ch.update_layout(
+                height=max(400, len(_lb) * 60),
+                title=f"Correlação de {method.capitalize()} entre Notas ({_corr_modo})",
+                xaxis=dict(side="bottom"),
+            )
+            st.plotly_chart(_fig_ch, use_container_width=True)
+
+            with st.expander("📋 Ver tabela da matriz de correlação"):
+                _corr_mat_fmt = _corr_mat.applymap(
+                    lambda v: _fmt_br(v, 4) if pd.notna(v) else "–"
+                )
+                st.dataframe(_corr_mat_fmt, use_container_width=True)
+        else:
+            st.info("Colunas de notas não disponíveis na amostra.")
+
+        st.markdown("---")
+
+        # ---- Scatter matrix de notas ----
+        st.subheader("Scatter Matrix das Notas")
+        st.markdown(
+            "_Distribuição par a par das notas individuais amostradas. "
+            "Colorida por UF. Usa amostra de até 2 000 registros para performance._"
+        )
+
+        _corr_score_opts = {_CORR_SCORE_COLS[c]: c for c in _avail_corr if c != "nota_media"}
+        _sel_pair_c = st.multiselect(
+            "Áreas de conhecimento",
+            list(_corr_score_opts.keys()),
+            default=list(_corr_score_opts.keys()),
+            key="corr_samp_pair_sel",
+        )
+
+        _uf_col_corr = "uf" if "uf" in _df_corr.columns else None
+        if len(_sel_pair_c) >= 2:
+            _sel_cols_c = [_corr_score_opts[lbl] for lbl in _sel_pair_c]
+            _extra_c    = ([_uf_col_corr] if _uf_col_corr else [])
+            _sdf_c      = _df_corr[_sel_cols_c + _extra_c].dropna().sample(
+                min(2000, len(_df_corr)), random_state=42
+            )
+            _ren_c = {c: _CORR_SCORE_COLS[c] for c in _sel_cols_c}
+            _sdf_c = _sdf_c.rename(columns=_ren_c)
+
+            _fig_sc_c = px.scatter_matrix(
+                _sdf_c,
+                dimensions=list(_ren_c.values()),
+                color=_uf_col_corr,
+                color_discrete_sequence=PALETTE,
+                title=f"Scatter Matrix das Notas Amostradas ({_corr_modo})",
+                opacity=0.5,
+            )
+            _fig_sc_c.update_traces(marker=dict(size=3))
+            _fig_sc_c.update_layout(height=700)
+            st.plotly_chart(_fig_sc_c, use_container_width=True)
+
+            _pair_corr_c = _df_corr[_sel_cols_c].corr(method=method).round(4)
+            _pair_corr_c = _pair_corr_c.rename(index=_ren_c, columns=_ren_c)
+            with st.expander("📋 Tabela de Correlação entre as variáveis selecionadas"):
+                _pcc_fmt = _pair_corr_c.applymap(
+                    lambda v: _fmt_br(v, 4) if pd.notna(v) else "–"
+                )
+                st.dataframe(_pcc_fmt, use_container_width=True)
+        else:
+            st.info("Selecione pelo menos 2 áreas de conhecimento para exibir o gráfico.")
+
+        st.markdown("---")
+
+        # ---- Dispersão nota × nota ----
+        st.subheader("Dispersão: Nota × Nota")
+        st.markdown(
+            "Visualize a relação entre duas áreas de conhecimento nos dados amostrados."
+        )
+        _corr_xy_opts = {_CORR_SCORE_COLS[c]: c for c in _avail_corr}
+        if len(_corr_xy_opts) >= 2:
+            _xy_keys = list(_corr_xy_opts.keys())
+            _col_cx, _col_cy = st.columns(2)
+            _sel_cx_lbl = _col_cx.selectbox("Nota (eixo X)", _xy_keys,
+                                             index=0, key="corr_sc_x")
+            _sel_cy_lbl = _col_cy.selectbox("Nota (eixo Y)", _xy_keys,
+                                             index=min(1, len(_xy_keys)-1), key="corr_sc_y")
+            _sel_cx_col = _corr_xy_opts[_sel_cx_lbl]
+            _sel_cy_col = _corr_xy_opts[_sel_cy_lbl]
+
+            _sdf_xy = _df_corr[[_sel_cx_col, _sel_cy_col, "municipio"]].dropna().copy()
+            _sdf_xy["_x_fmt"] = _sdf_xy[_sel_cx_col].apply(lambda v: _fmt_br(v, 1))
+            _sdf_xy["_y_fmt"] = _sdf_xy[_sel_cy_col].apply(lambda v: _fmt_br(v, 1))
+            _x_v = _sdf_xy[_sel_cx_col].values
+            _y_v = _sdf_xy[_sel_cy_col].values
+            _coef = np.polyfit(_x_v, _y_v, 1)
+            _xr   = np.linspace(_x_v.min(), _x_v.max(), 200)
+            _fig_xy = go.Figure()
+            _fig_xy.add_scatter(
+                x=_sdf_xy[_sel_cx_col], y=_sdf_xy[_sel_cy_col],
+                mode="markers",
+                marker=dict(color="#636EFA", size=3, opacity=0.4),
+                customdata=_sdf_xy[["municipio", "_x_fmt", "_y_fmt"]].values,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    + f"{_sel_cx_lbl}: " + "%{customdata[1]}<br>"
+                    + f"{_sel_cy_lbl}: " + "%{customdata[2]}<extra></extra>"
+                ),
+                showlegend=False,
+            )
+            _fig_xy.add_scatter(
+                x=_xr, y=np.polyval(_coef, _xr),
+                mode="lines", line=dict(color="black", width=2, dash="dash"),
+                name="Tendência (OLS)", showlegend=False,
+            )
+            _fig_xy.update_layout(
+                title=f"{_sel_cy_lbl} × {_sel_cx_lbl} ({_corr_modo})",
+                xaxis_title=_sel_cx_lbl,
+                yaxis_title=_sel_cy_lbl,
+                height=520,
+            )
+            st.plotly_chart(_fig_xy, use_container_width=True)
+
+            _corr_xy_val = _df_corr[[_sel_cx_col, _sel_cy_col]].corr(method=method).iloc[0, 1]
+            st.markdown(
+                f"**Correlação de {method.capitalize()} entre "
+                f"_{_sel_cx_lbl}_ e _{_sel_cy_lbl}_: `{_fmt_br(_corr_xy_val, 4)}`**"
+            )
+        else:
+            st.info("Colunas de notas insuficientes na amostra.")
 
 
 # ===========================================================================
@@ -1630,11 +1883,11 @@ elif page == "🔬 Amostragem":
             f"Amostras da tabela **`ed_enem_2024_resultados`** "
             f"(N = {_fmt_br(mom_res['N'])} participantes com as 5 notas válidas). "
             "Variável de interesse: **nota média** _(CN + CH + LC + MT + Redação) / 5_. "
-            "Amostragem estratificada por **município** (`co_municipio_prova`)."
+            "Amostragem estratificada por **UF** (`cd_uf` via JOIN com `municipio`)."
         )
         _rtab_aas, _rtab_est, _rtab_sis = st.tabs([
             "📊 AAS – Amostragem Aleatória Simples",
-            "🗂️ Estratificada (por município)",
+            "🗂️ Estratificada (por UF)",
             "📐 Sistemática",
         ])
         with _rtab_aas:
@@ -1648,10 +1901,10 @@ elif page == "🔬 Amostragem":
             _render_sample_tab_res(
                 "Estratificada (Resultados)",
                 sampling["estratificada_res"],
-                f"**Amostragem Estratificada** por _município_ (`co_municipio_prova`): "
+                f"**Amostragem Estratificada** por _UF_ (`cd_uf` via JOIN com `municipio`): "
                 f"a amostra de {_fmt_br(n_res)} participantes é distribuída "
-                "proporcionalmente entre os estratos municipais, "
-                "garantindo representatividade geográfica.",
+                "proporcionalmente entre os estratos de UF, "
+                "garantindo representatividade geográfica por estado.",
             )
         with _rtab_sis:
             _render_sample_tab_res(
