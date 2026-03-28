@@ -1394,62 +1394,63 @@ elif page == "🔗 Análise de Correlação":
 
         st.markdown("---")
 
-        # ---- Dispersão nota × nota ----
-        st.subheader("Dispersão: Nota × Nota")
-        st.markdown(
-            "Visualize a relação entre duas áreas de conhecimento nos dados amostrados."
-        )
-        _corr_xy_opts = {_CORR_SCORE_COLS[c]: c for c in _avail_corr}
-        if len(_corr_xy_opts) >= 2:
-            _xy_keys = list(_corr_xy_opts.keys())
-            _col_cx, _col_cy = st.columns(2)
-            _sel_cx_lbl = _col_cx.selectbox("Nota (eixo X)", _xy_keys,
-                                             index=0, key="corr_sc_x")
-            _sel_cy_lbl = _col_cy.selectbox("Nota (eixo Y)", _xy_keys,
-                                             index=min(1, len(_xy_keys)-1), key="corr_sc_y")
-            _sel_cx_col = _corr_xy_opts[_sel_cx_lbl]
-            _sel_cy_col = _corr_xy_opts[_sel_cy_lbl]
-
-            _sdf_xy = _df_corr[[_sel_cx_col, _sel_cy_col, "municipio"]].dropna().copy()
-            _sdf_xy["_x_fmt"] = _sdf_xy[_sel_cx_col].apply(lambda v: _fmt_br(v, 1))
-            _sdf_xy["_y_fmt"] = _sdf_xy[_sel_cy_col].apply(lambda v: _fmt_br(v, 1))
-            _x_v = _sdf_xy[_sel_cx_col].values
-            _y_v = _sdf_xy[_sel_cy_col].values
-            _coef = np.polyfit(_x_v, _y_v, 1)
-            _xr   = np.linspace(_x_v.min(), _x_v.max(), 200)
-            _fig_xy = go.Figure()
-            _fig_xy.add_scatter(
-                x=_sdf_xy[_sel_cx_col], y=_sdf_xy[_sel_cy_col],
-                mode="markers",
-                marker=dict(color="#636EFA", size=3, opacity=0.4),
-                customdata=_sdf_xy[["municipio", "_x_fmt", "_y_fmt"]].values,
-                hovertemplate=(
-                    "<b>%{customdata[0]}</b><br>"
-                    + f"{_sel_cx_lbl}: " + "%{customdata[1]}<br>"
-                    + f"{_sel_cy_lbl}: " + "%{customdata[2]}<extra></extra>"
-                ),
-                showlegend=False,
-            )
-            _fig_xy.add_scatter(
-                x=_xr, y=np.polyval(_coef, _xr),
-                mode="lines", line=dict(color="black", width=2, dash="dash"),
-                name="Tendência (OLS)", showlegend=False,
-            )
-            _fig_xy.update_layout(
-                title=f"{_sel_cy_lbl} × {_sel_cx_lbl} ({_corr_modo})",
-                xaxis_title=_sel_cx_lbl,
-                yaxis_title=_sel_cy_lbl,
-                height=520,
-            )
-            st.plotly_chart(_fig_xy, use_container_width=True)
-
-            _corr_xy_val = _df_corr[[_sel_cx_col, _sel_cy_col]].corr(method=method).iloc[0, 1]
+        # ---- Dispersão nota × nota (apenas no modo Agregação Municipal) ----
+        if _corr_modo == "Agregação Municipal":
+            st.subheader("Dispersão: Nota × Nota")
             st.markdown(
-                f"**Correlação de {method.capitalize()} entre "
-                f"_{_sel_cx_lbl}_ e _{_sel_cy_lbl}_: `{_fmt_br(_corr_xy_val, 4)}`**"
+                "Visualize a relação entre duas áreas de conhecimento nos dados amostrados."
             )
-        else:
-            st.info("Colunas de notas insuficientes na amostra.")
+            _corr_xy_opts = {_CORR_SCORE_COLS[c]: c for c in _avail_corr}
+            if len(_corr_xy_opts) >= 2:
+                _xy_keys = list(_corr_xy_opts.keys())
+                _col_cx, _col_cy = st.columns(2)
+                _sel_cx_lbl = _col_cx.selectbox("Nota (eixo X)", _xy_keys,
+                                                 index=0, key="corr_sc_x")
+                _sel_cy_lbl = _col_cy.selectbox("Nota (eixo Y)", _xy_keys,
+                                                 index=min(1, len(_xy_keys)-1), key="corr_sc_y")
+                _sel_cx_col = _corr_xy_opts[_sel_cx_lbl]
+                _sel_cy_col = _corr_xy_opts[_sel_cy_lbl]
+
+                _sdf_xy = _df_corr[[_sel_cx_col, _sel_cy_col, "municipio"]].dropna().copy()
+                _sdf_xy["_x_fmt"] = _sdf_xy[_sel_cx_col].apply(lambda v: _fmt_br(v, 1))
+                _sdf_xy["_y_fmt"] = _sdf_xy[_sel_cy_col].apply(lambda v: _fmt_br(v, 1))
+                _x_v = _sdf_xy[_sel_cx_col].values
+                _y_v = _sdf_xy[_sel_cy_col].values
+                _coef = np.polyfit(_x_v, _y_v, 1)
+                _xr   = np.linspace(_x_v.min(), _x_v.max(), 200)
+                _fig_xy = go.Figure()
+                _fig_xy.add_scatter(
+                    x=_sdf_xy[_sel_cx_col], y=_sdf_xy[_sel_cy_col],
+                    mode="markers",
+                    marker=dict(color="#636EFA", size=3, opacity=0.4),
+                    customdata=_sdf_xy[["municipio", "_x_fmt", "_y_fmt"]].values,
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b><br>"
+                        + f"{_sel_cx_lbl}: " + "%{customdata[1]}<br>"
+                        + f"{_sel_cy_lbl}: " + "%{customdata[2]}<extra></extra>"
+                    ),
+                    showlegend=False,
+                )
+                _fig_xy.add_scatter(
+                    x=_xr, y=np.polyval(_coef, _xr),
+                    mode="lines", line=dict(color="black", width=2, dash="dash"),
+                    name="Tendência (OLS)", showlegend=False,
+                )
+                _fig_xy.update_layout(
+                    title=f"{_sel_cy_lbl} × {_sel_cx_lbl} ({_corr_modo})",
+                    xaxis_title=_sel_cx_lbl,
+                    yaxis_title=_sel_cy_lbl,
+                    height=520,
+                )
+                st.plotly_chart(_fig_xy, use_container_width=True)
+
+                _corr_xy_val = _df_corr[[_sel_cx_col, _sel_cy_col]].corr(method=method).iloc[0, 1]
+                st.markdown(
+                    f"**Correlação de {method.capitalize()} entre "
+                    f"_{_sel_cx_lbl}_ e _{_sel_cy_lbl}_: `{_fmt_br(_corr_xy_val, 4)}`**"
+                )
+            else:
+                st.info("Colunas de notas insuficientes na amostra.")
 
 
 # ===========================================================================
