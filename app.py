@@ -156,24 +156,27 @@ PAGES = [
 ]
 page = st.sidebar.radio("Navegação", PAGES)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Filtros globais")
+if page != "📖 Introdução":
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Filtros globais")
 
-# Filtro por UF
-all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
-sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
+    # Filtro por UF
+    all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
+    sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
 
-# Aplica filtro de UF
-df = df_full[df_full["uf"].isin(sel_ufs)].copy()
+    # Aplica filtro de UF
+    df = df_full[df_full["uf"].isin(sel_ufs)].copy()
 
-st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
+    st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
 
-if df.empty:
-    st.warning(
-        "⚠️ Nenhum município corresponde aos filtros selecionados. "
-        "Selecione ao menos uma UF."
-    )
-    st.stop()
+    if df.empty:
+        st.warning(
+            "⚠️ Nenhum município corresponde aos filtros selecionados. "
+            "Selecione ao menos uma UF."
+        )
+        st.stop()
+else:
+    df = df_full.copy()
 
 # ---------------------------------------------------------------------------
 # Paleta de cores padrão
