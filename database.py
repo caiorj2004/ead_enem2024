@@ -270,68 +270,70 @@ def load_data(db_config: dict[str, Any]) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Statistical sampling – SQL templates (individual-level, not aggregated)
 # ---------------------------------------------------------------------------
-# Join key between the two tables is nu_inscricao (ENEM enrollment number).
+# ed_enem_2024_resultados has one row per participant with individual scores.
+# ed_enem_2024_participantes has the demographic columns (cor_raca, etc.) but
+# shares no individual-level join key with resultados – both tables are linked
+# only at the co_municipio_prova (municipal) level, exactly like the
+# aggregated pipeline.  All sampling queries therefore use resultados alone.
 # nota_media_5_notas is a pre-computed column in ed_enem_2024_resultados.
 
 _QUERY_MOMENTOS = """
 SELECT
-    COUNT(*)                          AS pop_n,
-    AVG(r.nota_media_5_notas)         AS pop_media,
-    VARIANCE(r.nota_media_5_notas)    AS pop_variancia,
-    STDDEV(r.nota_media_5_notas)      AS pop_desvio_padrao,
-    MIN(r.nota_media_5_notas)         AS pop_minimo,
-    MAX(r.nota_media_5_notas)         AS pop_maximo
-FROM ed_enem_2024_resultados r
-JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
-WHERE r.nota_redacao       IS NOT NULL
-  AND r.nota_media_5_notas IS NOT NULL
+    COUNT(*)                               AS pop_n,
+    AVG(nota_media_5_notas)                AS pop_media,
+    VARIANCE(nota_media_5_notas)           AS pop_variancia,
+    STDDEV(nota_media_5_notas)             AS pop_desvio_padrao,
+    MIN(nota_media_5_notas)                AS pop_minimo,
+    MAX(nota_media_5_notas)                AS pop_maximo
+FROM ed_enem_2024_resultados
+WHERE nota_redacao       IS NOT NULL
+  AND nota_media_5_notas IS NOT NULL
 """
 
 # {n} is substituted as a plain integer by load_sampling_data().
 _QUERY_AAS = """
 SELECT
-    r.nota_media_5_notas              AS nota_media,
-    r.nota_cn_ciencias_da_natureza    AS nota_cn,
-    r.nota_ch_ciencias_humanas        AS nota_ch,
-    r.nota_lc_linguagens_e_codigos    AS nota_lc,
-    r.nota_mt_matematica              AS nota_mt,
-    r.nota_redacao,
-    p.tp_cor_raca                     AS cor_raca,
-    p.co_municipio_prova              AS municipio
-FROM ed_enem_2024_resultados r
-JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
-WHERE r.nota_redacao       IS NOT NULL
-  AND r.nota_media_5_notas IS NOT NULL
+    nota_media_5_notas              AS nota_media,
+    nota_cn_ciencias_da_natureza    AS nota_cn,
+    nota_ch_ciencias_humanas        AS nota_ch,
+    nota_lc_linguagens_e_codigos    AS nota_lc,
+    nota_mt_matematica              AS nota_mt,
+    nota_redacao,
+    co_municipio_prova              AS municipio
+FROM ed_enem_2024_resultados
+WHERE nota_redacao       IS NOT NULL
+  AND nota_media_5_notas IS NOT NULL
 ORDER BY RANDOM()
 LIMIT {n}
 """
 
 # {pop_n} and {n} are substituted as plain integers.
+# Stratification is by co_municipio_prova (the only available geographic
+# dimension in resultados, since cor_raca lives in participantes and there
+# is no individual-level join key between the two tables).
 _QUERY_ESTRATIFICADA = """
 WITH ranked AS (
     SELECT
-        r.nota_media_5_notas              AS nota_media,
-        r.nota_cn_ciencias_da_natureza    AS nota_cn,
-        r.nota_ch_ciencias_humanas        AS nota_ch,
-        r.nota_lc_linguagens_e_codigos    AS nota_lc,
-        r.nota_mt_matematica              AS nota_mt,
-        r.nota_redacao,
-        p.tp_cor_raca                     AS cor_raca,
-        p.co_municipio_prova              AS municipio,
+        nota_media_5_notas              AS nota_media,
+        nota_cn_ciencias_da_natureza    AS nota_cn,
+        nota_ch_ciencias_humanas        AS nota_ch,
+        nota_lc_linguagens_e_codigos    AS nota_lc,
+        nota_mt_matematica              AS nota_mt,
+        nota_redacao,
+        co_municipio_prova              AS municipio,
         COUNT(*) OVER (
-            PARTITION BY p.tp_cor_raca, p.co_municipio_prova
-        )                                 AS tamanho_estrato,
+            PARTITION BY co_municipio_prova
+        )                               AS tamanho_estrato,
         ROW_NUMBER() OVER (
-            PARTITION BY p.tp_cor_raca, p.co_municipio_prova
+            PARTITION BY co_municipio_prova
             ORDER BY RANDOM()
-        )                                 AS rn
-    FROM ed_enem_2024_resultados r
-    JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
-    WHERE r.nota_redacao       IS NOT NULL
-      AND r.nota_media_5_notas IS NOT NULL
+        )                               AS rn
+    FROM ed_enem_2024_resultados
+    WHERE nota_redacao       IS NOT NULL
+      AND nota_media_5_notas IS NOT NULL
 )
 SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
-       cor_raca, municipio
+       municipio
 FROM ranked
 WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
 """
@@ -340,24 +342,22 @@ WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
 _QUERY_SISTEMATICA = """
 WITH numbered AS (
     SELECT
-        r.nota_media_5_notas              AS nota_media,
-        r.nota_cn_ciencias_da_natureza    AS nota_cn,
-        r.nota_ch_ciencias_humanas        AS nota_ch,
-        r.nota_lc_linguagens_e_codigos    AS nota_lc,
-        r.nota_mt_matematica              AS nota_mt,
-        r.nota_redacao,
-        p.tp_cor_raca                     AS cor_raca,
-        p.co_municipio_prova              AS municipio,
+        nota_media_5_notas              AS nota_media,
+        nota_cn_ciencias_da_natureza    AS nota_cn,
+        nota_ch_ciencias_humanas        AS nota_ch,
+        nota_lc_linguagens_e_codigos    AS nota_lc,
+        nota_mt_matematica              AS nota_mt,
+        nota_redacao,
+        co_municipio_prova              AS municipio,
         ROW_NUMBER() OVER (
-            ORDER BY p.co_municipio_prova, p.nu_inscricao
-        )                                 AS rn
-    FROM ed_enem_2024_resultados r
-    JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
-    WHERE r.nota_redacao       IS NOT NULL
-      AND r.nota_media_5_notas IS NOT NULL
+            ORDER BY co_municipio_prova
+        )                               AS rn
+    FROM ed_enem_2024_resultados
+    WHERE nota_redacao       IS NOT NULL
+      AND nota_media_5_notas IS NOT NULL
 )
 SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
-       cor_raca, municipio
+       municipio
 FROM numbered
 WHERE MOD(rn, {k}::bigint) = 0
 LIMIT {n}

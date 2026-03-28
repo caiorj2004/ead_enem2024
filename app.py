@@ -1066,7 +1066,7 @@ elif page == "🔬 Amostragem":
 
     _tab_aas, _tab_est, _tab_sis = st.tabs([
         "📊 AAS – Amostragem Aleatória Simples",
-        "🗂️ Estratificada (cor/raça × município)",
+        "🗂️ Estratificada (por município)",
         "📐 Sistemática",
     ])
 
@@ -1086,10 +1086,12 @@ elif page == "🔬 Amostragem":
             "Estratificada",
             sampling["estratificada"],
             (
-                "**Amostragem Estratificada** por _cor/raça_ × _município_: "
+                "**Amostragem Estratificada** por _município_ (`co_municipio_prova`): "
                 f"a amostra total de {_fmt_br(n)} participantes é distribuída proporcionalmente "
-                "entre os estratos definidos por cor/raça e município, "
-                "garantindo representatividade social e geográfica."
+                "entre os estratos municipais, garantindo representatividade geográfica. "
+                "_(Nota: a coluna cor/raça existe apenas em `ed_enem_2024_participantes` e "
+                "não possui chave de junção individual com `ed_enem_2024_resultados`, "
+                "portanto a estratificação é feita apenas por município.)_"
             ),
         )
 
