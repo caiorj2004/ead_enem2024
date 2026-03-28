@@ -166,21 +166,42 @@ if page not in ("📖 Introdução", "🔬 Amostragem"):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Filtros globais")
 
-    # Filtro por UF
-    all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
-    sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
+    # Determine whether the current page is in a sampling mode.
+    # Session state persists widget values across reruns, so we can read
+    # the mode selector before it is rendered again this cycle.
+    _SAMPLING_MODES_SET = {
+        "AAS – Amostragem Aleatória Simples",
+        "Estratificada (por cor/raça)",
+        "Estratificada (por UF)",
+        "Sistemática",
+    }
+    _PAGE_MODE_KEYS = {
+        "📊 Variáveis Qualitativas":  "qual_modo_sel",
+        "📈 Variáveis Quantitativas": "quant_modo_sel",
+        "🔗 Análise de Correlação":   "corr_modo_sel",
+    }
+    _current_mode = st.session_state.get(_PAGE_MODE_KEYS.get(page, ""), "Agregação Municipal")
+    _is_sampling_mode = _current_mode in _SAMPLING_MODES_SET
 
-    # Aplica filtro de UF
-    df = df_full[df_full["uf"].isin(sel_ufs)].copy()
+    if _is_sampling_mode:
+        st.sidebar.info("🔬 Filtro de UF desativado no modo de amostragem.")
+        df = df_full.copy()
+    else:
+        # Filtro por UF
+        all_ufs = sorted(df_full["uf"].dropna().unique().tolist())
+        sel_ufs = st.sidebar.multiselect("UF (Estado)", all_ufs, default=all_ufs)
 
-    st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
+        # Aplica filtro de UF
+        df = df_full[df_full["uf"].isin(sel_ufs)].copy()
 
-    if df.empty:
-        st.warning(
-            "⚠️ Nenhum município corresponde aos filtros selecionados. "
-            "Selecione ao menos uma UF."
-        )
-        st.stop()
+        st.sidebar.markdown(f"**Municípios filtrados:** {_fmt_br(len(df))}")
+
+        if df.empty:
+            st.warning(
+                "⚠️ Nenhum município corresponde aos filtros selecionados. "
+                "Selecione ao menos uma UF."
+            )
+            st.stop()
 else:
     df = df_full.copy()
 
@@ -230,12 +251,11 @@ organizada em quatro seções temáticas:
    (**Aleatória Simples**, **Estratificada** e **Sistemática**) sobre duas tabelas
    de granularidade individual: `ed_enem_2024_participantes` (N ≈ 4,3 M inscritos,
    estratificada por cor/raça) e `ed_enem_2024_resultados` (N ≈ 3 M com as 5
-   notas válidas, estratificada por município). Os tamanhos amostrais foram
+   notas válidas, estratificada por UF). Os tamanhos amostrais foram
    calculados pela fórmula de Cochran com correção para população finita
    (confiança 95 %). Acesse a aba **🔬 Amostragem** ou use o filtro
    **Modo de visualização** nas abas Variáveis para explorar os resultados.
-5. **Visualização** – o dashboard foi construído com **Streamlit** e **Plotly Express**,
-   com fallback para SQLite quando o PostgreSQL não está disponível.
+5. **Visualização** – o dashboard foi construído com **Streamlit** e **Plotly Express**.
 
 ---
 
@@ -645,7 +665,7 @@ elif page == "📈 Variáveis Quantitativas":
     _QUANT_MODO_OPTS = [
         "Agregação Municipal",
         "AAS – Amostragem Aleatória Simples",
-        "Estratificada (por município)",
+        "Estratificada (por UF)",
         "Sistemática",
     ]
     _quant_modo = st.selectbox(
@@ -871,7 +891,7 @@ elif page == "📈 Variáveis Quantitativas":
         # ---- Modo amostragem ----
         _QUANT_SAMPLE_MAP = {
             "AAS – Amostragem Aleatória Simples": "aas_res",
-            "Estratificada (por município)":      "estratificada_res",
+            "Estratificada (por UF)":             "estratificada_res",
             "Sistemática":                        "sistematica_res",
         }
         _quant_sample_key = _QUANT_SAMPLE_MAP[_quant_modo]

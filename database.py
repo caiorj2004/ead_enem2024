@@ -293,47 +293,50 @@ WHERE nota_redacao       IS NOT NULL
 # {n} is substituted as a plain integer by load_sampling_data().
 _QUERY_AAS = """
 SELECT
-    nota_media_5_notas              AS nota_media,
-    nota_cn_ciencias_da_natureza    AS nota_cn,
-    nota_ch_ciencias_humanas        AS nota_ch,
-    nota_lc_linguagens_e_codigos    AS nota_lc,
-    nota_mt_matematica              AS nota_mt,
-    nota_redacao,
-    co_municipio_prova              AS municipio
-FROM ed_enem_2024_resultados
-WHERE nota_redacao       IS NOT NULL
-  AND nota_media_5_notas IS NOT NULL
+    r.nota_media_5_notas              AS nota_media,
+    r.nota_cn_ciencias_da_natureza    AS nota_cn,
+    r.nota_ch_ciencias_humanas        AS nota_ch,
+    r.nota_lc_linguagens_e_codigos    AS nota_lc,
+    r.nota_mt_matematica              AS nota_mt,
+    r.nota_redacao,
+    r.co_municipio_prova              AS municipio,
+    m.cd_uf                           AS uf
+FROM ed_enem_2024_resultados r
+JOIN municipio m ON m.codigo_municipio_dv = r.co_municipio_prova
+WHERE r.nota_redacao       IS NOT NULL
+  AND r.nota_media_5_notas IS NOT NULL
 ORDER BY RANDOM()
 LIMIT {n}
 """
 
 # {pop_n} and {n} are substituted as plain integers.
-# Stratification is by co_municipio_prova (the only available geographic
-# dimension in resultados, since cor_raca lives in participantes and there
-# is no individual-level join key between the two tables).
+# Stratification is by UF (cd_uf in the municipio reference table), obtained
+# via a JOIN since resultados only stores co_municipio_prova.
 _QUERY_ESTRATIFICADA = """
 WITH ranked AS (
     SELECT
-        nota_media_5_notas              AS nota_media,
-        nota_cn_ciencias_da_natureza    AS nota_cn,
-        nota_ch_ciencias_humanas        AS nota_ch,
-        nota_lc_linguagens_e_codigos    AS nota_lc,
-        nota_mt_matematica              AS nota_mt,
-        nota_redacao,
-        co_municipio_prova              AS municipio,
+        r.nota_media_5_notas              AS nota_media,
+        r.nota_cn_ciencias_da_natureza    AS nota_cn,
+        r.nota_ch_ciencias_humanas        AS nota_ch,
+        r.nota_lc_linguagens_e_codigos    AS nota_lc,
+        r.nota_mt_matematica              AS nota_mt,
+        r.nota_redacao,
+        r.co_municipio_prova              AS municipio,
+        m.cd_uf                           AS uf,
         COUNT(*) OVER (
-            PARTITION BY co_municipio_prova
-        )                               AS tamanho_estrato,
+            PARTITION BY m.cd_uf
+        )                                 AS tamanho_estrato,
         ROW_NUMBER() OVER (
-            PARTITION BY co_municipio_prova
+            PARTITION BY m.cd_uf
             ORDER BY RANDOM()
-        )                               AS rn
-    FROM ed_enem_2024_resultados
-    WHERE nota_redacao       IS NOT NULL
-      AND nota_media_5_notas IS NOT NULL
+        )                                 AS rn
+    FROM ed_enem_2024_resultados r
+    JOIN municipio m ON m.codigo_municipio_dv = r.co_municipio_prova
+    WHERE r.nota_redacao       IS NOT NULL
+      AND r.nota_media_5_notas IS NOT NULL
 )
 SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
-       municipio
+       municipio, uf
 FROM ranked
 WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
 """
@@ -342,22 +345,24 @@ WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
 _QUERY_SISTEMATICA = """
 WITH numbered AS (
     SELECT
-        nota_media_5_notas              AS nota_media,
-        nota_cn_ciencias_da_natureza    AS nota_cn,
-        nota_ch_ciencias_humanas        AS nota_ch,
-        nota_lc_linguagens_e_codigos    AS nota_lc,
-        nota_mt_matematica              AS nota_mt,
-        nota_redacao,
-        co_municipio_prova              AS municipio,
+        r.nota_media_5_notas              AS nota_media,
+        r.nota_cn_ciencias_da_natureza    AS nota_cn,
+        r.nota_ch_ciencias_humanas        AS nota_ch,
+        r.nota_lc_linguagens_e_codigos    AS nota_lc,
+        r.nota_mt_matematica              AS nota_mt,
+        r.nota_redacao,
+        r.co_municipio_prova              AS municipio,
+        m.cd_uf                           AS uf,
         ROW_NUMBER() OVER (
-            ORDER BY co_municipio_prova
-        )                               AS rn
-    FROM ed_enem_2024_resultados
-    WHERE nota_redacao       IS NOT NULL
-      AND nota_media_5_notas IS NOT NULL
+            ORDER BY r.co_municipio_prova
+        )                                 AS rn
+    FROM ed_enem_2024_resultados r
+    JOIN municipio m ON m.codigo_municipio_dv = r.co_municipio_prova
+    WHERE r.nota_redacao       IS NOT NULL
+      AND r.nota_media_5_notas IS NOT NULL
 )
 SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
-       municipio
+       municipio, uf
 FROM numbered
 WHERE MOD(rn, {k}::bigint) = 0
 LIMIT {n}
@@ -487,7 +492,7 @@ def load_sampling_data(db_config: dict[str, Any]) -> dict:
 
     * ``ed_enem_2024_resultados`` – participantes com as 5 notas válidas (N ≈ 3 M).
       Variável de Cochran: ``nota_media_5_notas`` (E = 3 pontos, 95 % confiança).
-      Estratificação: ``co_municipio_prova``.
+      Estratificação: ``cd_uf`` (via JOIN com a tabela ``municipio``).
 
     Returns
     -------
