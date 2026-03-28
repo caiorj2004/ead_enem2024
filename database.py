@@ -20,6 +20,7 @@ Settings → Secrets (chaves: host, port, dbname, user, password).
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pandas as pd
@@ -264,4 +265,214 @@ def load_data(db_config: dict[str, Any]) -> pd.DataFrame:
             "Configure as variáveis em Settings → Secrets no Streamlit Cloud."
         )
     return _pg_load(db_config)
+
+
+# ---------------------------------------------------------------------------
+# Statistical sampling – SQL templates (individual-level, not aggregated)
+# ---------------------------------------------------------------------------
+# Join key between the two tables is nu_inscricao (ENEM enrollment number).
+# nota_media_5_notas is a pre-computed column in ed_enem_2024_resultados.
+
+_QUERY_MOMENTOS = """
+SELECT
+    COUNT(*)                          AS pop_n,
+    AVG(r.nota_media_5_notas)         AS pop_media,
+    VARIANCE(r.nota_media_5_notas)    AS pop_variancia,
+    STDDEV(r.nota_media_5_notas)      AS pop_desvio_padrao,
+    MIN(r.nota_media_5_notas)         AS pop_minimo,
+    MAX(r.nota_media_5_notas)         AS pop_maximo
+FROM ed_enem_2024_resultados r
+JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
+WHERE r.nota_redacao       IS NOT NULL
+  AND r.nota_media_5_notas IS NOT NULL
+"""
+
+# {n} is substituted as a plain integer by load_sampling_data().
+_QUERY_AAS = """
+SELECT
+    r.nota_media_5_notas              AS nota_media,
+    r.nota_cn_ciencias_da_natureza    AS nota_cn,
+    r.nota_ch_ciencias_humanas        AS nota_ch,
+    r.nota_lc_linguagens_e_codigos    AS nota_lc,
+    r.nota_mt_matematica              AS nota_mt,
+    r.nota_redacao,
+    p.tp_cor_raca                     AS cor_raca,
+    p.co_municipio_prova              AS municipio
+FROM ed_enem_2024_resultados r
+JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
+WHERE r.nota_redacao       IS NOT NULL
+  AND r.nota_media_5_notas IS NOT NULL
+ORDER BY RANDOM()
+LIMIT {n}
+"""
+
+# {pop_n} and {n} are substituted as plain integers.
+_QUERY_ESTRATIFICADA = """
+WITH ranked AS (
+    SELECT
+        r.nota_media_5_notas              AS nota_media,
+        r.nota_cn_ciencias_da_natureza    AS nota_cn,
+        r.nota_ch_ciencias_humanas        AS nota_ch,
+        r.nota_lc_linguagens_e_codigos    AS nota_lc,
+        r.nota_mt_matematica              AS nota_mt,
+        r.nota_redacao,
+        p.tp_cor_raca                     AS cor_raca,
+        p.co_municipio_prova              AS municipio,
+        COUNT(*) OVER (
+            PARTITION BY p.tp_cor_raca, p.co_municipio_prova
+        )                                 AS tamanho_estrato,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.tp_cor_raca, p.co_municipio_prova
+            ORDER BY RANDOM()
+        )                                 AS rn
+    FROM ed_enem_2024_resultados r
+    JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
+    WHERE r.nota_redacao       IS NOT NULL
+      AND r.nota_media_5_notas IS NOT NULL
+)
+SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
+       cor_raca, municipio
+FROM ranked
+WHERE rn <= GREATEST(1, ROUND((tamanho_estrato::float / {pop_n}) * {n}))
+"""
+
+# {k} is the systematic interval (N // n); {n} caps the result.
+_QUERY_SISTEMATICA = """
+WITH numbered AS (
+    SELECT
+        r.nota_media_5_notas              AS nota_media,
+        r.nota_cn_ciencias_da_natureza    AS nota_cn,
+        r.nota_ch_ciencias_humanas        AS nota_ch,
+        r.nota_lc_linguagens_e_codigos    AS nota_lc,
+        r.nota_mt_matematica              AS nota_mt,
+        r.nota_redacao,
+        p.tp_cor_raca                     AS cor_raca,
+        p.co_municipio_prova              AS municipio,
+        ROW_NUMBER() OVER (
+            ORDER BY p.co_municipio_prova, p.nu_inscricao
+        )                                 AS rn
+    FROM ed_enem_2024_resultados r
+    JOIN ed_enem_2024_participantes p ON p.nu_inscricao = r.nu_inscricao
+    WHERE r.nota_redacao       IS NOT NULL
+      AND r.nota_media_5_notas IS NOT NULL
+)
+SELECT nota_media, nota_cn, nota_ch, nota_lc, nota_mt, nota_redacao,
+       cor_raca, municipio
+FROM numbered
+WHERE MOD(rn, {k}::bigint) = 0
+LIMIT {n}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Sampling helpers
+# ---------------------------------------------------------------------------
+
+def _calcular_n_amostra(
+    pop_n: int,
+    sigma: float,
+    Z: float = 1.96,
+    E: float = 3.0,
+) -> int:
+    """
+    Calcula o tamanho mínimo da amostra (Cochran) com correção para população finita.
+
+    n₀ = (Z² × σ²) / E²
+    n  = n₀ / (1 + (n₀ − 1) / N)
+    """
+    n0 = (Z ** 2 * sigma ** 2) / (E ** 2)
+    n = n0 / (1.0 + (n0 - 1.0) / pop_n)
+    return max(1, int(math.ceil(n)))
+
+
+def load_sampling_data(db_config: dict[str, Any]) -> dict:
+    """
+    Coleta momentos populacionais da nota_media e gera três amostras estatísticas
+    via PostgreSQL (individual-level, não agregado).
+
+    Parâmetros de amostragem:
+        nível de confiança = 95%  →  Z = 1,96
+        erro amostral (E) = 3 pontos na nota_media
+
+    Returns
+    -------
+    dict com chaves:
+        momentos      – dict com N, media, variancia, desvio_padrao, minimo, maximo
+        n_amostra     – int, tamanho mínimo calculado
+        Z, E          – parâmetros usados
+        k_sistematica – intervalo sistemático k = N // n
+        aas           – pd.DataFrame (Amostragem Aleatória Simples)
+        estratificada – pd.DataFrame (por cor/raça × município)
+        sistematica   – pd.DataFrame (sistemática)
+
+    Raises
+    ------
+    ValueError    – credenciais não configuradas
+    ImportError   – psycopg2-binary não instalado
+    psycopg2.Error – erro de conexão ou query
+    """
+    if not db_config:
+        raise ValueError(
+            "Credenciais do banco de dados não configuradas. "
+            "Configure as variáveis em Settings → Secrets no Streamlit Cloud."
+        )
+    try:
+        import psycopg2  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "psycopg2-binary não está instalado. "
+            "Adicione-o a requirements.txt para usar o banco PostgreSQL."
+        ) from exc
+
+    Z, E = 1.96, 3.0
+
+    conn = psycopg2.connect(
+        host=db_config["host"],
+        port=int(db_config.get("port", 5432)),
+        dbname=db_config["dbname"],
+        user=db_config["user"],
+        password=db_config["password"],
+    )
+    try:
+        # 1. Momentos populacionais
+        row = pd.read_sql(_QUERY_MOMENTOS, conn).iloc[0]
+        pop_n = int(row["pop_n"])
+        momentos = {
+            "N":             pop_n,
+            "media":         float(row["pop_media"]),
+            "variancia":     float(row["pop_variancia"]),
+            "desvio_padrao": float(row["pop_desvio_padrao"]),
+            "minimo":        float(row["pop_minimo"]),
+            "maximo":        float(row["pop_maximo"]),
+        }
+
+        # 2. Tamanho mínimo da amostra
+        n = _calcular_n_amostra(pop_n, momentos["desvio_padrao"], Z, E)
+        k = max(1, pop_n // n)
+
+        # 3. Amostragem Aleatória Simples (AAS)
+        df_aas = pd.read_sql(_QUERY_AAS.format(n=n), conn)
+
+        # 4. Amostragem Estratificada (cor/raça × município)
+        df_est = pd.read_sql(
+            _QUERY_ESTRATIFICADA.format(pop_n=pop_n, n=n), conn
+        )
+
+        # 5. Amostragem Sistemática
+        df_sis = pd.read_sql(
+            _QUERY_SISTEMATICA.format(k=k, n=n), conn
+        )
+    finally:
+        conn.close()
+
+    return {
+        "momentos":      momentos,
+        "n_amostra":     n,
+        "Z":             Z,
+        "E":             E,
+        "k_sistematica": k,
+        "aas":           df_aas,
+        "estratificada": df_est,
+        "sistematica":   df_sis,
+    }
 
