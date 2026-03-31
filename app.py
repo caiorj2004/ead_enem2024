@@ -1556,10 +1556,17 @@ elif page == "🔬 Amostragem":
             f"| Desvio padrão (σ) | {_fmt_br(mom_part['desvio_padrao'], 2)} |\n"
             f"| N | {_fmt_br(mom_part['N'])} |\n\n"
             f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0_part, 1)}\n\n"
-            f"**n = {_fmt_br(n_part)}**  |  k = {_fmt_br(k_part)}"
+            f"**n = {_fmt_br(n_part)}** (com correção para população finita)\n\n"
+            f"k = ⌊N / n⌋ = ⌊{_fmt_br(mom_part['N'])} / {_fmt_br(n_part)}⌋ = **{_fmt_br(k_part)}**"
         )
         st.metric("Tamanho da amostra (n)", _fmt_br(n_part))
         st.metric("Intervalo sistemático (k)", _fmt_br(k_part))
+        st.info(
+            f"**k ({_fmt_br(k_part)}) > n ({_fmt_br(n_part)}) é esperado e matematicamente válido** "
+            f"em populações grandes. O intervalo k = ⌊N/n⌋ indica que, a cada bloco de "
+            f"{_fmt_br(k_part)} inscritos consecutivos, 1 é selecionado, "
+            f"totalizando aproximadamente {_fmt_br(n_part)} observações na amostra sistemática."
+        )
 
     with _ncol_res:
         st.markdown(
@@ -1572,10 +1579,17 @@ elif page == "🔬 Amostragem":
             f"| Desvio padrão (σ) | {_fmt_br(mom_res['desvio_padrao'], 2)} |\n"
             f"| N | {_fmt_br(mom_res['N'])} |\n\n"
             f"n₀ = (Z² × σ²) / E² = {_fmt_br(_n0_res, 1)}\n\n"
-            f"**n = {_fmt_br(n_res)}**  |  k = {_fmt_br(k_res)}"
+            f"**n = {_fmt_br(n_res)}** (com correção para população finita)\n\n"
+            f"k = ⌊N / n⌋ = ⌊{_fmt_br(mom_res['N'])} / {_fmt_br(n_res)}⌋ = **{_fmt_br(k_res)}**"
         )
         st.metric("Tamanho da amostra (n)", _fmt_br(n_res))
         st.metric("Intervalo sistemático (k)", _fmt_br(k_res))
+        st.info(
+            f"**k ({_fmt_br(k_res)}) > n ({_fmt_br(n_res)}) é esperado e matematicamente válido** "
+            f"em populações grandes. O intervalo k = ⌊N/n⌋ indica que, a cada bloco de "
+            f"{_fmt_br(k_res)} registros consecutivos, 1 é selecionado, "
+            f"totalizando aproximadamente {_fmt_br(n_res)} observações na amostra sistemática."
+        )
 
     st.markdown("---")
 
@@ -1879,9 +1893,12 @@ elif page == "🔬 Amostragem":
             _render_sample_tab_part(
                 "Sistemática (Participantes)",
                 sampling["sistematica_part"],
-                f"**Amostragem Sistemática:** intervalo k = {_fmt_br(k_part)}. "
+                f"**Amostragem Sistemática:** k = ⌊N/n⌋ = ⌊{_fmt_br(mom_part['N'])} / {_fmt_br(n_part)}⌋ = {_fmt_br(k_part)}. "
                 "A população é ordenada por município; "
-                f"seleciona-se cada k-ésimo inscrito, gerando uma amostra de até {_fmt_br(n_part)}.",
+                f"seleciona-se 1 inscrito a cada {_fmt_br(k_part)} consecutivos, "
+                f"gerando uma amostra de aproximadamente {_fmt_br(n_part)} observações. "
+                f"**k > n é esperado**: com N = {_fmt_br(mom_part['N'])} inscritos e n = {_fmt_br(n_part)}, "
+                "o intervalo de salto k = ⌊N/n⌋ é necessariamente maior que n para populações grandes.",
             )
 
     with _tab_res:
@@ -1916,7 +1933,10 @@ elif page == "🔬 Amostragem":
             _render_sample_tab_res(
                 "Sistemática (Resultados)",
                 sampling["sistematica_res"],
-                f"**Amostragem Sistemática:** intervalo k = {_fmt_br(k_res)}. "
+                f"**Amostragem Sistemática:** k = ⌊N/n⌋ = ⌊{_fmt_br(mom_res['N'])} / {_fmt_br(n_res)}⌋ = {_fmt_br(k_res)}. "
                 "A população é ordenada por município; "
-                f"seleciona-se cada k-ésimo elemento, gerando uma amostra de até {_fmt_br(n_res)} participantes.",
+                f"seleciona-se 1 elemento a cada {_fmt_br(k_res)} consecutivos, "
+                f"gerando uma amostra de aproximadamente {_fmt_br(n_res)} observações. "
+                f"**k > n é esperado**: com N = {_fmt_br(mom_res['N'])} registros e n = {_fmt_br(n_res)}, "
+                "o intervalo de salto k = ⌊N/n⌋ é necessariamente maior que n para populações grandes.",
             )
