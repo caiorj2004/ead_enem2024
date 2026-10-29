@@ -1,0 +1,23 @@
+# Banco SQLite local (gerado automaticamente no modo template)
+enem2024.db
+
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos de IDE
+.vscode/
+.idea/
+*.iml
+
+# Microdados reais (arquivos grandes não versionados)
+data/
+
+# Variáveis de ambiente locais
+.env
